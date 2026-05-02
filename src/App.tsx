@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 
 // CONFIG
 const SUPABASE_URL = "https://tcrsfnbauyjqglquivoj.supabase.co";
-const SUPABASE_ANON_KEY = "YOUR_SUPABASE_KEY";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...";
 const ADMIN_PASSWORD = "rachal123";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
