@@ -1,22 +1,21 @@
-import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
 
-// ── CONFIG ─────────────────────────────────────────
-const SUPABASE_URL = 'https://tcrsfnbauyjqglquivoj.supabase.co';
-const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjcnNmbmJhdXlqcWdscXVpdm9qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3MzEzMTUsImV4cCI6MjA5MzMwNzMxNX0.lbWX41JEEhFXEZzOkBN6wAUM3SS5czp3o6PtrLiO5yA";
-const ADMIN_PASSWORD = 'rachal123';
+import { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+// CONFIG
+const SUPABASE_URL = "https://tcrsfnbauyjqglquivoj.supabase.co";
+const SUPABASE_ANON_KEY = "YOUR_SUPABASE_KEY";
+const ADMIN_PASSWORD = "rachal123";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// ── TYPES ─────────────────────────────────────────
+// TYPES
 type Player = { id: string; name: string };
 
 type Transaction = {
   id: string;
   player_id: string;
   amount: number;
-  type: 'credit' | 'debit';
   category: string;
   date: string;
 };
@@ -26,139 +25,131 @@ export default function App() {
   const [tx, setTx] = useState<Transaction[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // LOGIN STATE
+  // login
   const [showLogin, setShowLogin] = useState(false);
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState("");
 
-  // PLAYER STATE
+  // player modal
   const [showPlayerModal, setShowPlayerModal] = useState(false);
-  const [playerName, setPlayerName] = useState('');
+  const [playerName, setPlayerName] = useState("");
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
 
-  // TRANSACTION STATE
+  // player page
+  const [viewPlayer, setViewPlayer] = useState<Player | null>(null);
+
+  // tx modal
   const [showTxModal, setShowTxModal] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
 
   const [form, setForm] = useState({
-    amount: '',
-    type: 'debit',
-    category: 'Match',
+    amount: "",
+    category: "Match",
+    type: "credit", // + / -
   });
 
-  // ── LOAD DATA ─────────────────────────────────
+  // LOAD
   const load = async () => {
-    const p = await supabase.from('players').select('*');
+    const p = await supabase.from("players").select("*");
     const t = await supabase
-      .from('transactions')
-      .select('*')
-      .order('date', { ascending: false });
+      .from("transactions")
+      .select("*")
+      .order("date", { ascending: false });
 
     setPlayers(p.data || []);
     setTx(t.data || []);
   };
 
-  // ── REALTIME ─────────────────────────────────
   useEffect(() => {
     load();
-
-    const channel = supabase
-      .channel('live')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'transactions' },
-        load
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'players' },
-        load
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, []);
 
-  // ── PLAYER CRUD ──────────────────────────────
+  // PLAYER CRUD
   const savePlayer = async () => {
     if (!playerName.trim()) return;
 
     if (editingPlayer) {
       await supabase
-        .from('players')
+        .from("players")
         .update({ name: playerName })
-        .eq('id', editingPlayer.id);
+        .eq("id", editingPlayer.id);
     } else {
-      await supabase.from('players').insert({
+      await supabase.from("players").insert({
         id: crypto.randomUUID(),
         name: playerName,
       });
     }
 
-    setPlayerName('');
+    setPlayerName("");
     setEditingPlayer(null);
     setShowPlayerModal(false);
     load();
   };
 
   const deletePlayer = async (id: string) => {
-    if (!confirm('Delete player?')) return;
-    await supabase.from('players').delete().eq('id', id);
+    if (!confirm("Delete player?")) return;
+    await supabase.from("players").delete().eq("id", id);
     load();
   };
 
-  // ── TRANSACTION ──────────────────────────────
+  // TRANSACTION SAVE / EDIT
   const saveTx = async () => {
     if (!selectedPlayer || !form.amount) return;
 
-    await supabase.from('transactions').insert({
-      id: crypto.randomUUID(),
-      player_id: selectedPlayer,
-      amount: Number(form.amount),
-      type: form.type,
-      category: form.category,
-      date: new Date().toISOString(),
-    });
+    const amt =
+      form.type === "credit"
+        ? Number(form.amount)
+        : -Number(form.amount);
 
+    if (editingTx) {
+      await supabase
+        .from("transactions")
+        .update({
+          amount: amt,
+          category: form.category,
+        })
+        .eq("id", editingTx.id);
+    } else {
+      await supabase.from("transactions").insert({
+        id: crypto.randomUUID(),
+        player_id: selectedPlayer,
+        amount: amt,
+        category: form.category,
+        date: new Date().toISOString(),
+      });
+    }
+
+    setEditingTx(null);
     setShowTxModal(false);
-    setForm({ amount: '', type: 'debit', category: 'Match' });
+    setForm({ amount: "", category: "Match", type: "credit" });
     load();
   };
 
-  // ── CALCULATE BALANCE ───────────────────────
-  const stats: Record<string, { credit: number; debit: number; balance: number }> = {};
+  const deleteTx = async (id: string) => {
+    if (!confirm("Delete transaction?")) return;
+    await supabase.from("transactions").delete().eq("id", id);
+    load();
+  };
 
-  players.forEach((p) => {
-    stats[p.id] = { credit: 0, debit: 0, balance: 0 };
-  });
+  // BALANCE
+  const stats: Record<string, number> = {};
+  players.forEach((p) => (stats[p.id] = 0));
 
   tx.forEach((t) => {
-    const s = stats[t.player_id];
-    if (!s) return;
-
-    if (t.type === 'credit') {
-      s.credit += t.amount;
-      s.balance += t.amount;
-    } else {
-      s.debit += t.amount;
-      s.balance -= t.amount;
-    }
+    stats[t.player_id] = (stats[t.player_id] || 0) + t.amount;
   });
 
   return (
-    <div style={{ padding: 20, background: '#0a0a0a', minHeight: '100vh', color: '#fff' }}>
+    <div style={{ padding: 20, background: "#0a0a0a", minHeight: "100vh", color: "#fff" }}>
       <h1>🏆 RACHALLANGERS</h1>
 
-      {/* LOGIN BUTTON */}
       <button onClick={() => setShowLogin(true)}>Admin Login</button>
 
-      {/* ADD PLAYER */}
       {isAdmin && (
         <button
           onClick={() => {
             setEditingPlayer(null);
-            setPlayerName('');
+            setPlayerName("");
             setShowPlayerModal(true);
           }}
           style={{ marginLeft: 10 }}
@@ -169,17 +160,20 @@ export default function App() {
 
       <hr />
 
+      {/* DASHBOARD */}
       {players.map((p) => {
-        const s = stats[p.id];
+        const balance = stats[p.id] || 0;
 
         return (
-          <div key={p.id} style={{ background: '#111', padding: 15, borderRadius: 10, marginBottom: 10 }}>
-            <h3>{p.name}</h3>
+          <div key={p.id} style={{ background: "#111", padding: 15, borderRadius: 10, marginBottom: 10 }}>
+            <h3 onClick={() => setViewPlayer(p)} style={{ cursor: "pointer" }}>
+              {p.name}
+            </h3>
 
-            <div>
-              Credit ₹{s.credit} | Pending ₹{s.debit} | Balance{' '}
-              <b style={{ color: s.balance >= 0 ? '#00C9A7' : '#FF6B35' }}>
-                ₹{s.balance}
+            <div style={{ fontSize: 18 }}>
+              Balance:{" "}
+              <b style={{ color: balance >= 0 ? "#00C9A7" : "#FF6B35" }}>
+                ₹{balance}
               </b>
             </div>
 
@@ -187,115 +181,142 @@ export default function App() {
               <div style={{ marginTop: 10 }}>
                 <button
                   onClick={() => {
-                    setSelectedPlayer(p.id);
-                    setShowTxModal(true);
-                  }}
-                >
-                  + Tx
-                </button>
-
-                <button
-                  onClick={() => {
                     setEditingPlayer(p);
                     setPlayerName(p.name);
                     setShowPlayerModal(true);
                   }}
-                  style={{ marginLeft: 10 }}
                 >
                   Edit
                 </button>
 
-                <button
-                  onClick={() => deletePlayer(p.id)}
-                  style={{ marginLeft: 10 }}
-                >
+                <button onClick={() => deletePlayer(p.id)} style={{ marginLeft: 10 }}>
                   Delete
                 </button>
               </div>
             )}
-
-            <div style={{ marginTop: 10 }}>
-              {tx
-                .filter((t) => t.player_id === p.id)
-                .map((t) => (
-                  <div key={t.id}>
-                    {t.date.slice(0, 10)} • {t.category} • {t.type} ₹{t.amount}
-                  </div>
-                ))}
-            </div>
           </div>
         );
       })}
 
-      {/* LOGIN MODAL */}
+      {/* PLAYER PAGE */}
+      {viewPlayer && (
+        <div style={modal}>
+          <div style={{ ...box, width: 350, maxHeight: "80vh", overflowY: "auto" }}>
+            <h2>{viewPlayer.name}</h2>
+
+            <div style={{ fontSize: 20 }}>
+              Balance:{" "}
+              <b style={{ color: (stats[viewPlayer.id] || 0) >= 0 ? "#00C9A7" : "#FF6B35" }}>
+                ₹{stats[viewPlayer.id] || 0}
+              </b>
+            </div>
+
+            {isAdmin && (
+              <div style={{ marginTop: 10 }}>
+                <button
+                  onClick={() => {
+                    setSelectedPlayer(viewPlayer.id);
+                    setForm({ ...form, type: "credit" });
+                    setShowTxModal(true);
+                  }}
+                >
+                  + Add
+                </button>
+
+                <button
+                  onClick={() => {
+                    setSelectedPlayer(viewPlayer.id);
+                    setForm({ ...form, type: "debit" });
+                    setShowTxModal(true);
+                  }}
+                  style={{ marginLeft: 10 }}
+                >
+                  - Deduct
+                </button>
+              </div>
+            )}
+
+            <hr />
+
+            {tx
+              .filter((t) => t.player_id === viewPlayer.id)
+              .map((t) => (
+                <div key={t.id} style={{ display: "flex", justifyContent: "space-between", padding: 6 }}>
+                  <div>
+                    {t.date.slice(0, 10)} • {t.category} •{" "}
+                    <span style={{ color: t.amount >= 0 ? "#00C9A7" : "#FF6B35" }}>
+                      {t.amount >= 0 ? "+" : "-"}₹{Math.abs(t.amount)}
+                    </span>
+                  </div>
+
+                  {isAdmin && (
+                    <div>
+                      <button
+                        onClick={() => {
+                          setEditingTx(t);
+                          setSelectedPlayer(t.player_id);
+                          setForm({
+                            amount: String(Math.abs(t.amount)),
+                            category: t.category,
+                            type: t.amount >= 0 ? "credit" : "debit",
+                          });
+                          setShowTxModal(true);
+                        }}
+                      >
+                        Edit
+                      </button>
+
+                      <button onClick={() => deleteTx(t.id)} style={{ marginLeft: 5 }}>
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+            <button onClick={() => setViewPlayer(null)}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* LOGIN */}
       {showLogin && (
         <div style={modal}>
           <div style={box}>
-            <h3>Admin Login</h3>
-
-            <input
-              type="password"
-              placeholder="Enter password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-
+            <input type="password" onChange={(e) => setPassword(e.target.value)} />
             <button
               onClick={() => {
                 if (password === ADMIN_PASSWORD) {
                   setIsAdmin(true);
                   setShowLogin(false);
-                  setPassword('');
-                } else {
-                  alert('Wrong password');
                 }
               }}
             >
               Login
             </button>
-
-            <button onClick={() => setShowLogin(false)}>Cancel</button>
           </div>
         </div>
       )}
 
-      {/* PLAYER MODAL */}
+      {/* PLAYER FORM */}
       {showPlayerModal && (
         <div style={modal}>
           <div style={box}>
-            <h3>{editingPlayer ? 'Edit Player' : 'Add Player'}</h3>
-
-            <input
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
-              placeholder="Name"
-            />
-
+            <input value={playerName} onChange={(e) => setPlayerName(e.target.value)} />
             <button onClick={savePlayer}>Save</button>
-            <button onClick={() => setShowPlayerModal(false)}>Cancel</button>
           </div>
         </div>
       )}
 
-      {/* TRANSACTION MODAL */}
+      {/* TX FORM */}
       {showTxModal && (
         <div style={modal}>
           <div style={box}>
-            <h3>Add Transaction</h3>
-
             <input
               placeholder="Amount"
               value={form.amount}
               onChange={(e) => setForm({ ...form, amount: e.target.value })}
             />
-
-            <select
-              value={form.type}
-              onChange={(e) => setForm({ ...form, type: e.target.value })}
-            >
-              <option value="debit">Debit</option>
-              <option value="credit">Credit</option>
-            </select>
 
             <select
               value={form.category}
@@ -307,7 +328,6 @@ export default function App() {
             </select>
 
             <button onClick={saveTx}>Save</button>
-            <button onClick={() => setShowTxModal(false)}>Cancel</button>
           </div>
         </div>
       )}
@@ -315,21 +335,20 @@ export default function App() {
   );
 }
 
-// ── STYLES ──────────────────────────────────────
 const modal = {
-  position: 'fixed' as const,
+  position: "fixed" as const,
   inset: 0,
-  background: 'rgba(0,0,0,0.7)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
+  background: "rgba(0,0,0,0.7)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
 };
 
 const box = {
-  background: '#111',
+  background: "#111",
   padding: 20,
   borderRadius: 10,
-  display: 'flex',
-  flexDirection: 'column' as const,
+  display: "flex",
+  flexDirection: "column" as const,
   gap: 10,
 }
