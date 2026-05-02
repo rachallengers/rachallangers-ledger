@@ -21,16 +21,21 @@ type Transaction = {
   date: string;
 };
 
-// ── APP ─────────────────────────────────────────
 export default function App() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [tx, setTx] = useState<Transaction[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
 
+  // LOGIN STATE
+  const [showLogin, setShowLogin] = useState(false);
+  const [password, setPassword] = useState('');
+
+  // PLAYER STATE
   const [showPlayerModal, setShowPlayerModal] = useState(false);
   const [playerName, setPlayerName] = useState('');
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
 
+  // TRANSACTION STATE
   const [showTxModal, setShowTxModal] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
 
@@ -80,19 +85,15 @@ export default function App() {
     if (!playerName.trim()) return;
 
     if (editingPlayer) {
-      const { error } = await supabase
+      await supabase
         .from('players')
         .update({ name: playerName })
         .eq('id', editingPlayer.id);
-
-      if (error) return alert(error.message);
     } else {
-      const { error } = await supabase.from('players').insert({
+      await supabase.from('players').insert({
         id: crypto.randomUUID(),
         name: playerName,
       });
-
-      if (error) return alert(error.message);
     }
 
     setPlayerName('');
@@ -103,17 +104,15 @@ export default function App() {
 
   const deletePlayer = async (id: string) => {
     if (!confirm('Delete player?')) return;
-
-    const { error } = await supabase.from('players').delete().eq('id', id);
-    if (error) alert(error.message);
-    else load();
+    await supabase.from('players').delete().eq('id', id);
+    load();
   };
 
   // ── TRANSACTION ──────────────────────────────
   const saveTx = async () => {
     if (!selectedPlayer || !form.amount) return;
 
-    const { error } = await supabase.from('transactions').insert({
+    await supabase.from('transactions').insert({
       id: crypto.randomUUID(),
       player_id: selectedPlayer,
       amount: Number(form.amount),
@@ -122,16 +121,13 @@ export default function App() {
       date: new Date().toISOString(),
     });
 
-    if (error) alert(error.message);
-    else {
-      setShowTxModal(false);
-      setForm({ amount: '', type: 'debit', category: 'Match' });
-      load();
-    }
+    setShowTxModal(false);
+    setForm({ amount: '', type: 'debit', category: 'Match' });
+    load();
   };
 
   // ── CALCULATE BALANCE ───────────────────────
-  const stats: Record<string, any> = {};
+  const stats: Record<string, { credit: number; debit: number; balance: number }> = {};
 
   players.forEach((p) => {
     stats[p.id] = { credit: 0, debit: 0, balance: 0 };
@@ -150,27 +146,14 @@ export default function App() {
     }
   });
 
-  // ── UI ──────────────────────────────────────
   return (
-    <div
-      style={{
-        padding: 20,
-        background: '#0a0a0a',
-        minHeight: '100vh',
-        color: '#fff',
-      }}
-    >
+    <div style={{ padding: 20, background: '#0a0a0a', minHeight: '100vh', color: '#fff' }}>
       <h1>🏆 RACHALLANGERS</h1>
 
-      <button
-        onClick={() => {
-          const p = prompt('Admin password?');
-          if (p === ADMIN_PASSWORD) setIsAdmin(true);
-        }}
-      >
-        Admin Login
-      </button>
+      {/* LOGIN BUTTON */}
+      <button onClick={() => setShowLogin(true)}>Admin Login</button>
 
+      {/* ADD PLAYER */}
       {isAdmin && (
         <button
           onClick={() => {
@@ -187,18 +170,10 @@ export default function App() {
       <hr />
 
       {players.map((p) => {
-        const s = stats[p.id] || { credit: 0, debit: 0, balance: 0 };
+        const s = stats[p.id];
 
         return (
-          <div
-            key={p.id}
-            style={{
-              background: '#111',
-              padding: 15,
-              borderRadius: 10,
-              marginBottom: 10,
-            }}
-          >
+          <div key={p.id} style={{ background: '#111', padding: 15, borderRadius: 10, marginBottom: 10 }}>
             <h3>{p.name}</h3>
 
             <div>
@@ -251,6 +226,38 @@ export default function App() {
           </div>
         );
       })}
+
+      {/* LOGIN MODAL */}
+      {showLogin && (
+        <div style={modal}>
+          <div style={box}>
+            <h3>Admin Login</h3>
+
+            <input
+              type="password"
+              placeholder="Enter password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+
+            <button
+              onClick={() => {
+                if (password === ADMIN_PASSWORD) {
+                  setIsAdmin(true);
+                  setShowLogin(false);
+                  setPassword('');
+                } else {
+                  alert('Wrong password');
+                }
+              }}
+            >
+              Login
+            </button>
+
+            <button onClick={() => setShowLogin(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
 
       {/* PLAYER MODAL */}
       {showPlayerModal && (
@@ -325,4 +332,4 @@ const box = {
   display: 'flex',
   flexDirection: 'column' as const,
   gap: 10,
-};
+}
