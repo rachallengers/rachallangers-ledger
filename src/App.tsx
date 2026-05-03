@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//CHALLANGERS —  Rohan Abhilasha
+// CHALLENGERS — Rohan Abhilasha (with alerts, filters & custom logo)
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect } from "react";
@@ -140,19 +140,19 @@ export default function App() {
         <div style={styles.logo}>
           <img src={CUSTOM_LOGO_URL} alt="Logo" style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover" }} />
           <div>
-            <div style={styles.logoTitle}>RACHALLANGERS</div>
-            <div style={styles.logoSub}>Match Ledger</div>
+            <div style={styles.logoTitle}>CHALLENGERS</div>
+            <div style={styles.logoSub}>Rohan Abhilasha</div>
           </div>
         </div>
       </header>
 
       <div style={styles.statsBar}>
         <div style={styles.statBox}>
-          <span style={{ color: "#00C9A7", fontSize: 10, fontWeight: 600 }}>CREDIT POOL</span>
+          <span style={{ color: "#00C9A7", fontSize: 10, fontWeight: 600 }}>BALANCE</span>
           <span style={{ color: "#00C9A7", fontSize: 18, fontWeight: 700 }}>₹{totalCredit.toFixed(0)}</span>
         </div>
         <div style={styles.statBox}>
-          <span style={{ color: "#FF6B35", fontSize: 10, fontWeight: 600 }}>TOTAL DEBT</span>
+          <span style={{ color: "#FF6B35", fontSize: 10, fontWeight: 600 }}>PENDING</span>
           <span style={{ color: "#FF6B35", fontSize: 18, fontWeight: 700 }}>₹{totalDebt.toFixed(0)}</span>
         </div>
         <div style={styles.statBox}>
