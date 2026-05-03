@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// RACHALLANGERS — Match Ledger (mobile-first, no sidebar)
+//CHALLANGERS — Rohan Abhilasha
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect } from "react";
@@ -8,6 +8,9 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = "https://tcrsfnbauyjqglquivoj.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjcnNmbmJhdXlqcWdscXVpdm9qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3MzEzMTUsImV4cCI6MjA5MzMwNzMxNX0.lbWX41JEEhFXEZzOkBN6wAUM3SS5czp3o6PtrLiO5yA";
 const ADMIN_PASSWORD = "rachal123";
+
+// 🎨 Your custom logo
+const CUSTOM_LOGO_URL = "https://i.ibb.co/V0my7sYq/039925f4-eab6-45a2-b640-f8bad2975157.png";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -22,6 +25,8 @@ const ICONS = {
   lock: "M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 0110 0v4",
   unlock: "M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 019.9-1",
   arrowLeft: "M19 12H5M12 19l-7-7 7-7",
+  filter: "M22 3H2l8 9.46V19l4 2v-8.54L22 3z",
+  alertCircle: "M12 8v4M12 16h.01M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z",
 };
 
 const Icon = ({ d, size = 16, color = "currentColor" }: { d: string; size?: number; color?: string }) => (
@@ -35,18 +40,20 @@ type Player = { id: string; name: string };
 type Transaction = {
   id: string; playerId: string; amount: number;
   type: "credit" | "debit"; date: string; note: string;
+  createdAt?: string;
 };
 
 async function fetchAll() {
   const [playersRes, txRes] = await Promise.all([
     supabase.from("players").select("*").order("created_at", { ascending: true }),
-    supabase.from("transactions").select("*").order("date", { ascending: false }),
+    supabase.from("transactions").select("*").order("created_at", { ascending: false }),
   ]);
   return {
     players: (playersRes.data || []).map((p: any) => ({ id: p.id, name: p.name })) as Player[],
     transactions: (txRes.data || []).map((t: any) => ({
       id: t.id, playerId: t.player_id, amount: +t.amount,
       type: t.type, date: t.date, note: t.note || "",
+      createdAt: t.created_at,
     })) as Transaction[],
     error: playersRes.error || txRes.error,
   };
@@ -73,6 +80,7 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [viewPlayer, setViewPlayer] = useState<Player | null>(null);
+  const [filter, setFilter] = useState<"all" | "debtors" | "creditors">("all");
 
   const refresh = async () => {
     const { players, transactions, error } = await fetchAll();
@@ -106,7 +114,16 @@ export default function App() {
   Object.entries(playerStats).forEach(([id, s]) => { balances[id] = s.balance; });
 
   const totalCredit = Object.values(balances).filter((b) => b > 0).reduce((a, b) => a + b, 0);
-  const totalDebit = Math.abs(Object.values(balances).filter((b) => b < 0).reduce((a, b) => a + b, 0));
+  const totalDebt = Math.abs(Object.values(balances).filter((b) => b < 0).reduce((a, b) => a + b, 0));
+
+  const filteredPlayers = players.filter((p) => {
+    const bal = balances[p.id] || 0;
+    if (filter === "debtors") return bal < 0;
+    if (filter === "creditors") return bal > 0;
+    return true;
+  });
+
+  const debtorCount = players.filter((p) => (balances[p.id] || 0) < 0).length;
 
   if (loading) {
     return (
@@ -119,10 +136,9 @@ export default function App() {
 
   return (
     <div style={styles.root}>
-      {/* Header */}
       <header style={styles.header}>
         <div style={styles.logo}>
-          <span style={{ fontSize: 28 }}>🏆</span>
+          <img src={CUSTOM_LOGO_URL} alt="Logo" style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover" }} />
           <div>
             <div style={styles.logoTitle}>RACHALLANGERS</div>
             <div style={styles.logoSub}>Match Ledger</div>
@@ -130,7 +146,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Stats Bar */}
       <div style={styles.statsBar}>
         <div style={styles.statBox}>
           <span style={{ color: "#00C9A7", fontSize: 10, fontWeight: 600 }}>CREDIT POOL</span>
@@ -138,7 +153,7 @@ export default function App() {
         </div>
         <div style={styles.statBox}>
           <span style={{ color: "#FF6B35", fontSize: 10, fontWeight: 600 }}>TOTAL DEBT</span>
-          <span style={{ color: "#FF6B35", fontSize: 18, fontWeight: 700 }}>₹{totalDebit.toFixed(0)}</span>
+          <span style={{ color: "#FF6B35", fontSize: 18, fontWeight: 700 }}>₹{totalDebt.toFixed(0)}</span>
         </div>
         <div style={styles.statBox}>
           <span style={{ color: "#FFD60A", fontSize: 10, fontWeight: 600 }}>PLAYERS</span>
@@ -146,7 +161,16 @@ export default function App() {
         </div>
       </div>
 
-      {/* Main Content */}
+      {debtorCount > 0 && (
+        <div style={styles.alertBanner}>
+          <Icon d={ICONS.alertCircle} size={16} color="#FF6B35" />
+          <span>{debtorCount} player{debtorCount > 1 ? "s" : ""} with pending dues</span>
+          <button style={styles.alertBtn} onClick={() => setFilter("debtors")}>
+            View Debtors
+          </button>
+        </div>
+      )}
+
       <main style={styles.main}>
         {error && <div style={styles.errorBar}>⚠ {error}</div>}
         {!isAdmin && (
@@ -155,13 +179,18 @@ export default function App() {
           </div>
         )}
         <Players
-          players={players} setPlayers={setPlayers}
-          playerStats={playerStats} isAdmin={isAdmin}
+          players={filteredPlayers}
+          allPlayers={players}
+          setPlayers={setPlayers}
+          playerStats={playerStats}
+          isAdmin={isAdmin}
           onPlayerClick={(p) => setViewPlayer(p)}
+          filter={filter}
+          setFilter={setFilter}
+          debtorCount={debtorCount}
         />
       </main>
 
-      {/* Footer */}
       <footer style={styles.footer}>
         <button onClick={() => {
           if (isAdmin) { setIsAdmin(false); sessionStorage.removeItem("rl:isAdmin"); }
@@ -270,7 +299,7 @@ function PlayerDetailScreen({
     bal += t.type === "credit" ? t.amount : -t.amount;
     runningMap[t.id] = bal;
   });
-  const newestFirst = [...transactions].sort((a, b) => +new Date(b.date) - +new Date(a.date));
+  const newestFirst = [...transactions].sort((a, b) => +new Date(b.createdAt || b.date) - +new Date(a.createdAt || a.date));
 
   return (
     <div style={styles.overlay}>
@@ -360,6 +389,7 @@ function PlayerDetailScreen({
           )}
           {newestFirst.map((t) => {
             const running = runningMap[t.id] ?? 0;
+            const timeAgo = t.createdAt ? formatTimeAgo(new Date(t.createdAt)) : "";
             return (
               <div key={t.id} style={styles.txRow}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -368,6 +398,7 @@ function PlayerDetailScreen({
                       {t.type === "credit" ? "Paid" : "Owes"}
                     </span>
                     <span style={{ color: "#666", fontSize: 11 }}>{t.date}</span>
+                    {timeAgo && <span style={{ color: "#555", fontSize: 10 }}>({timeAgo})</span>}
                   </div>
                   {t.note && <div style={{ color: "#888", fontSize: 12, marginTop: 2 }}>{t.note}</div>}
                   <div style={{ color: "#555", fontSize: 10, marginTop: 2 }}>
@@ -396,11 +427,15 @@ function PlayerDetailScreen({
 }
 
 function Players({
-  players, setPlayers, playerStats, isAdmin, onPlayerClick,
+  players, allPlayers, setPlayers, playerStats, isAdmin, onPlayerClick, filter, setFilter, debtorCount,
 }: {
-  players: Player[]; setPlayers: React.Dispatch<React.SetStateAction<Player[]>>;
+  players: Player[]; allPlayers: Player[];
+  setPlayers: React.Dispatch<React.SetStateAction<Player[]>>;
   playerStats: Record<string, { credit: number; debit: number; balance: number }>;
   isAdmin: boolean; onPlayerClick: (p: Player) => void;
+  filter: "all" | "debtors" | "creditors";
+  setFilter: (f: "all" | "debtors" | "creditors") => void;
+  debtorCount: number;
 }) {
   const [playerModal, setPlayerModal] = useState<null | "add" | Player>(null);
   const [pForm, setPForm] = useState({ name: "" });
@@ -442,7 +477,38 @@ function Players({
         )}
       </div>
 
-      {players.length === 0 && (
+      <div style={styles.filterBar}>
+        <button
+          style={{ ...styles.filterBtn, ...(filter === "all" ? styles.filterBtnActive : {}) }}
+          onClick={() => setFilter("all")}
+        >
+          All ({allPlayers.length})
+        </button>
+        <button
+          style={{ ...styles.filterBtn, ...(filter === "debtors" ? styles.filterBtnActive : {}) }}
+          onClick={() => setFilter("debtors")}
+        >
+          🔴 Debtors ({debtorCount})
+        </button>
+        <button
+          style={{ ...styles.filterBtn, ...(filter === "creditors" ? styles.filterBtnActive : {}) }}
+          onClick={() => setFilter("creditors")}
+        >
+          🟢 Creditors ({allPlayers.length - debtorCount})
+        </button>
+      </div>
+
+      {players.length === 0 && filter !== "all" && (
+        <div style={{ textAlign: "center", padding: "80px 20px", color: "#444" }}>
+          <div style={{ fontSize: 56 }}>✨</div>
+          <p style={{ marginTop: 12, fontSize: 16 }}>
+            No {filter === "debtors" ? "debtors" : "creditors"} found
+          </p>
+          <button style={styles.btnSecondary} onClick={() => setFilter("all")}>Show All</button>
+        </div>
+      )}
+
+      {players.length === 0 && filter === "all" && (
         <div style={{ textAlign: "center", padding: "80px 20px", color: "#444" }}>
           <div style={{ fontSize: 56 }}>👥</div>
           <p style={{ marginTop: 12, fontSize: 16 }}>No players yet!</p>
@@ -453,12 +519,27 @@ function Players({
         {players.map((p) => {
           const stat = playerStats[p.id] || { credit: 0, debit: 0, balance: 0 };
           const bal = stat.balance;
+          const isDebtor = bal < 0;
           return (
-            <div key={p.id} style={styles.playerCardClean} onClick={() => onPlayerClick(p)}>
+            <div
+              key={p.id}
+              style={{
+                ...styles.playerCardClean,
+                ...(isDebtor ? styles.debtorCard : {}),
+              }}
+              onClick={() => onPlayerClick(p)}
+            >
+              {isDebtor && (
+                <div style={styles.debtorBadge}>
+                  <Icon d={ICONS.alertCircle} size={12} color="#FF6B35" />
+                </div>
+              )}
               <div style={styles.avatar}>{p.name[0]?.toUpperCase()}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ color: "#eee", fontWeight: 600, fontSize: 17 }}>{p.name}</div>
-                <div style={{ color: "#666", fontSize: 11, marginTop: 2 }}>Tap to view details</div>
+                <div style={{ color: "#666", fontSize: 11, marginTop: 2 }}>
+                  {isDebtor ? "⚠️ Has pending dues" : "Tap to view details"}
+                </div>
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ color: bal >= 0 ? "#00C9A7" : "#FF6B35", fontWeight: 900, fontSize: 24 }}>
@@ -510,6 +591,17 @@ function Players({
   );
 }
 
+function formatTimeAgo(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 const styles: Record<string, React.CSSProperties> = {
   root: { display: "flex", flexDirection: "column", minHeight: "100vh", background: "#0a0a0a",
     fontFamily: "system-ui, -apple-system, sans-serif", color: "#eee" },
@@ -521,6 +613,10 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#0f0f0f", borderBottom: "1px solid #1a1a1a" },
   statBox: { background: "#141414", borderRadius: 8, padding: "8px", display: "flex",
     flexDirection: "column", gap: 2, alignItems: "center" },
+  alertBanner: { background: "#3a1a1a", borderLeft: "4px solid #FF6B35", padding: "12px 16px",
+    display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#FF6B35" },
+  alertBtn: { marginLeft: "auto", background: "#FF6B35", color: "#fff", border: "none",
+    borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" },
   main: { flex: 1, overflow: "auto" },
   footer: { background: "#0f0f0f", borderTop: "1px solid #1a1a1a", padding: "16px", textAlign: "center" },
   adminBtn: { display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
@@ -532,11 +628,19 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12, textAlign: "center", borderBottom: "1px solid #222" },
   page: { padding: "20px" },
   pageTitle: { fontSize: 28, fontWeight: 900, color: "#fff", margin: 0 },
-  pageHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
+  pageHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
+  filterBar: { display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" },
+  filterBtn: { flex: 1, background: "#1a1a1a", border: "2px solid #2a2a2a", borderRadius: 8,
+    padding: "10px 16px", fontSize: 13, fontWeight: 600, color: "#888", cursor: "pointer", minWidth: 100 },
+  filterBtnActive: { borderColor: "#FFD60A", color: "#FFD60A", background: "#2a2a1a" },
   cardGrid: { display: "flex", flexDirection: "column", gap: 12 },
   playerCardClean: { background: "#111", borderRadius: 12, padding: "18px 20px",
     display: "flex", alignItems: "center", gap: 14, cursor: "pointer",
-    transition: "all 0.2s", border: "2px solid transparent" },
+    transition: "all 0.2s", border: "2px solid transparent", position: "relative" },
+  debtorCard: { borderColor: "#FF6B3544", background: "#1a1010" },
+  debtorBadge: { position: "absolute", top: 8, right: 8, background: "#3a1a1a",
+    borderRadius: "50%", width: 24, height: 24, display: "flex", alignItems: "center",
+    justifyContent: "center" },
   avatar: { width: 52, height: 52, borderRadius: "50%", background: "#FFD60A", color: "#000",
     display: "flex", alignItems: "center", justifyContent: "center",
     fontWeight: 900, fontSize: 22, flexShrink: 0 },
@@ -567,4 +671,4 @@ const styles: Record<string, React.CSSProperties> = {
   txForm: { padding: "18px 22px", background: "#0a0a0a", borderBottom: "1px solid #1e1e1e" },
   txHistory: { flex: 1, overflowY: "auto", padding: "18px 22px" },
   txRow: { display: "flex", alignItems: "center", gap: 12, padding: "14px 0", borderBottom: "1px solid #1a1a1a" },
-};
+}
