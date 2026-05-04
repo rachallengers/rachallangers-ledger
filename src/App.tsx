@@ -107,10 +107,25 @@ const paymentCategories = [
   { label: "Other", type: "other" },
 ] as const
 
-const seedPlayers = 
-function newId() {
-  return crypto.randomUUID()
-}
+const seedPlayers = [
+  "Mohit",
+  "Soum",
+  "Pranab",
+  "Nikhil K",
+  "Abhinav",
+  "Vinil",
+  "Praphul",
+  "Firdaus",
+  "Vipin",
+  "Vishnu",
+  "Navmath",
+  "Pritesh",
+  "Sachin T",
+  "Digvijay"
+
+]
+
+const newId = () => crypto.randomUUID()
 const money = (value: number) => `₹${Math.round(Math.abs(value)).toLocaleString("en-IN")}`
 const signedMoney = (value: number) => `${value >= 0 ? "+" : "-"} ${money(value)}`
 const labelFor = (type: ExpenseType) => expenseTypes.find((item) => item.id === type)?.label ?? "Other"
