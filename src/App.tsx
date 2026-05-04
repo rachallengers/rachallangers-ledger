@@ -1,1008 +1,1266 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { createClient } from "@supabase/supabase-js"
+import "./index.css"
 
-const SUPABASE_URL = "https://tcrsfnbauyjqglquivoj.supabase.co"
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjcnNmbmJhdXlqcWdscXVpdm9qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3MzEzMTUsImV4cCI6MjA5MzMwNzMxNX0.lbWX41JEEhFXEZzOkBN6wAUM3SS5czp3o6PtrLiO5yA"
-const ADMIN_PASSWORD = "rachal123"
-const LOGO_URL = "https://i.ibb.co/V0my7sYq/039925f4-eab6-45a2-b640-f8bad2975157.png"
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
+const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey)
+const supabase = hasSupabaseConfig
+  ? createClient(supabaseUrl!, supabaseAnonKey!, {
+      auth: { persistSession: false },
+    })
+  : null
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-const uid = () => Math.random().toString(36).slice(2, 11)
+type ExpenseType = "match" | "vehicle" | "utilities" | "food" | "other"
+type RequestStatus = "pending" | "approved" | "rejected"
+type Role = "admin" | "user"
 
-const EXPENSE_CATEGORIES = [
-  { id: "food", name: "Food & Dining", emoji: "🍔", color: "#FF6B6B" },
-  { id: "transport", name: "Transport", emoji: "🚗", color: "#4ECDC4" },
-  { id: "utilities", name: "Utilities", emoji: "⚡", color: "#FFD93D" },
-  { id: "matches", name: "Matches", emoji: "🏏", color: "#95E1D3" },
+type Player = {
+  id: string
+  name: string
+  phone?: string
+}
+
+type Payment = {
+  id: string
+  playerId: string
+  amount: number
+  label: string
+}
+
+type Expense = {
+  id: string
+  name: string
+  type: ExpenseType
+  date: string
+  payments: Payment[]
+  participantIds: string[]
+  splitWeights?: Record<string, number>
+  createdAt: number
+}
+
+type Adjustment = {
+  id: string
+  playerId: string
+  kind: "credit" | "debit"
+  amount: number
+  reason: string
+  createdAt: number
+}
+
+type CreditRequest = {
+  id: string
+  playerId: string
+  amount: number
+  reason: string
+  note: string
+  status: RequestStatus
+  createdAt: number
+}
+
+type Screen =
+  | "dashboard"
+  | "players"
+  | "expenses"
+  | "reports"
+  | "add-player"
+  | "expense-basic"
+  | "expense-payments"
+  | "expense-players"
+  | "expense-review"
+  | "expense-success"
+  | "credit-request"
+  | "pending-requests"
+  | "adjustments"
+  | `player:${string}`
+
+type DraftExpense = {
+  name: string
+  type: ExpenseType
+  date: string
+  payments: Payment[]
+  participantIds: string[]
+  splitWeights: Record<string, number>
+}
+
+type AppState = {
+  players: Player[]
+  expenses: Expense[]
+  adjustments: Adjustment[]
+  requests: CreditRequest[]
+}
+
+const expenseTypes: { id: ExpenseType; label: string; icon: string }[] = [
+  { id: "match", label: "Match Fee", icon: "T" },
+  { id: "vehicle", label: "Vehicle", icon: "V" },
+  { id: "utilities", label: "Utilities", icon: "U" },
+  { id: "food", label: "Food", icon: "F" },
+  { id: "other", label: "Other", icon: "O" },
 ]
 
+const LOGO_URL = "https://i.ibb.co/xKHvpNq7/039925f4-eab6-45a2-b640-f8bad2975157.png"
+const paymentCategories = [
+  { label: "Food", type: "food" },
+  { label: "Match Fee", type: "match" },
+  { label: "Vehicle", type: "vehicle" },
+  { label: "Utilities", type: "utilities" },
+  { label: "Other", type: "other" },
+] as const
+
+const seedPlayers = [
+  "Mohit",
+  "Soum",
+  "Rohit",
+  "Pranab",
+  "Vivek",
+  "Aman",
+  "Nikhil K",
+  "Abhinav",
+  "Rahul",
+  "Deepak",
+  "Arjun",
+  "Kunal",
+  "Saurabh",
+  "Harsh",
+  "Ankit",
+  "Prateek",
+  "Varun",
+  "Jay",
+  "Akash",
+  "Siddharth",
+  "Gaurav",
+  "Manish",
+  "Sahil",
+  "Karan",
+  "Aditya",
+  "Yash",
+  "Naveen",
+]
+
+const newId = () => crypto.randomUUID()
+const money = (value: number) => `₹${Math.round(Math.abs(value)).toLocaleString("en-IN")}`
+const signedMoney = (value: number) => `${value >= 0 ? "+" : "-"} ${money(value)}`
+const labelFor = (type: ExpenseType) => expenseTypes.find((item) => item.id === type)?.label ?? "Other"
+const initialPlayers = (): Player[] => seedPlayers.map((name) => ({ id: newId(), name }))
+
+const defaultState = (): AppState => {
+  const players = initialPlayers()
+  const find = (name: string) => players.find((player) => player.name === name)?.id ?? players[0]?.id ?? ""
+  return {
+    players,
+    expenses: [
+      {
+        id: newId(),
+        name: "Sunglow Ground",
+        type: "match",
+        date: "2026-02-05",
+        payments: [
+          { id: newId(), playerId: find("Soum"), amount: 1850, label: "Ground Fee" },
+          { id: newId(), playerId: find("Mohit"), amount: 800, label: "Vehicle (Car)" },
+        ],
+        participantIds: [find("Prateek"), find("Aman"), find("Rohit"), find("Nikhil K"), find("Abhinav"), find("Vivek"), find("Kunal"), find("Rahul")],
+        splitWeights: {
+          [find("Prateek")]: 4,
+          [find("Aman")]: 1,
+          [find("Rohit")]: 1,
+          [find("Nikhil K")]: 1,
+          [find("Abhinav")]: 1,
+          [find("Vivek")]: 1,
+          [find("Kunal")]: 1,
+          [find("Rahul")]: 1,
+        },
+        createdAt: Date.now() - 86400000,
+      },
+    ],
+    adjustments: [],
+    requests: [],
+  }
+}
+
+function loadLocalState() {
+  try {
+    const raw = localStorage.getItem("cricket-expense-state")
+    return raw ? (JSON.parse(raw) as AppState) : defaultState()
+  } catch {
+    return defaultState()
+  }
+}
+
+function saveLocalState(state: AppState) {
+  localStorage.setItem("cricket-expense-state", JSON.stringify(state))
+}
+
+const bootState = loadLocalState()
+
+function starterDraft(players: Player[]): DraftExpense {
+  const mohit = players.find((player) => player.name === "Mohit")?.id ?? players[0]?.id ?? ""
+  const soum = players.find((player) => player.name === "Soum")?.id ?? players[1]?.id ?? mohit
+
+  return {
+    name: "Sunflow Ground Match",
+    type: "match",
+    date: "2024-05-17",
+    payments: [
+      { id: newId(), playerId: mohit, amount: 400, label: "Vehicle (Car)" },
+      { id: newId(), playerId: soum, amount: 5000, label: "Ground Fee" },
+    ],
+    participantIds: players.map((player) => player.id),
+    splitWeights: Object.fromEntries(players.map((player) => [player.id, 1])),
+  }
+}
+
+function expenseTotal(expense: Pick<Expense, "payments"> | DraftExpense) {
+  return expense.payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+}
+
+function totalSplitWeight(expense: Pick<Expense, "participantIds" | "splitWeights"> | DraftExpense) {
+  return expense.participantIds.reduce((sum, playerId) => sum + (expense.splitWeights?.[playerId] ?? 1), 0)
+}
+
+function splitUnit(expense: Pick<Expense, "payments" | "participantIds" | "splitWeights"> | DraftExpense) {
+  const totalWeight = totalSplitWeight(expense)
+  return totalWeight ? expenseTotal(expense) / totalWeight : 0
+}
+
+function playerShare(expense: Pick<Expense, "payments" | "participantIds" | "splitWeights"> | DraftExpense, playerId: string) {
+  if (!expense.participantIds.includes(playerId)) return 0
+  return splitUnit(expense) * (expense.splitWeights?.[playerId] ?? 1)
+}
+
+function taggedCredits(expense: Pick<Expense, "payments">) {
+  return expense.payments.filter((payment) => /vehicle|car|bike|fuel|transport|food|meal|snack|utilities|utility|light|water|other/i.test(payment.label))
+}
+
+function creditTagIcon(label: string) {
+  if (/vehicle|car|bike|fuel|transport/i.test(label)) return "🚗"
+  if (/food|meal|snack/i.test(label)) return "🍽"
+  if (/utilities|utility|light|water/i.test(label)) return "⚡"
+  return "₹"
+}
+
+function formatDate(value: string) {
+  return new Date(`${value}T00:00:00`).toLocaleDateString("en-IN")
+}
+
+function initials(name: string) {
+  return name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase()
+}
+
 export default function App() {
-  const [tab, setTab] = useState("home")
-  const [players, setPlayers] = useState([])
-  const [transactions, setTransactions] = useState([])
-  const [requests, setRequests] = useState([])
-  const [expenses, setExpenses] = useState([])
-  const [filter, setFilter] = useState("all")
-  const [isAdmin, setIsAdmin] = useState(false)
-  
-  // Modals
-  const [showLoginModal, setShowLoginModal] = useState(false)
-  const [showAddPlayerModal, setShowAddPlayerModal] = useState(false)
-  const [showCreditModal, setShowCreditModal] = useState(false)
-  const [showDebitModal, setShowDebitModal] = useState(false)
-  const [selectedPlayer, setSelectedPlayer] = useState(null)
-  
-  // Forms
-  const [newPlayerName, setNewPlayerName] = useState("")
-  const [creditAmount, setCreditAmount] = useState("")
-  const [debitAmount, setDebitAmount] = useState("")
-  const [expenseTitle, setExpenseTitle] = useState("")
-  const [expenseAmount, setExpenseAmount] = useState("")
-  const [expenseCategory, setExpenseCategory] = useState("")
-  const [expensePlayers, setExpensePlayers] = useState([])
-  const [vehicleCredits, setVehicleCredits] = useState([])
-  const [reqPlayerId, setReqPlayerId] = useState("")
-  const [reqAmount, setReqAmount] = useState("")
-  const [reqNote, setReqNote] = useState("")
-  const [expandedExpense, setExpandedExpense] = useState(null)
-
-  // Fetch data
-  const refresh = async () => {
-    const [p, t, r] = await Promise.all([
-      supabase.from("players").select("*").order("created_at"),
-      supabase.from("transactions").select("*").order("created_at", { ascending: false }),
-      supabase.from("credit_requests").select("*").order("created_at", { ascending: false }),
-    ])
-    if (p.data) setPlayers(p.data)
-    if (t.data) setTransactions(t.data)
-    if (r.data) setRequests(r.data)
-  }
+  const [state, setState] = useState<AppState>(() => bootState)
+  const [screen, setScreen] = useState<Screen>("dashboard")
+  const [role, setRole] = useState<Role | null>(() => (localStorage.getItem("ra-role") as Role | null) ?? null)
+  const [selectedUserId, setSelectedUserId] = useState(() => localStorage.getItem("ra-user-id") ?? bootState.players[0]?.id ?? "")
+  const [draft, setDraft] = useState<DraftExpense>(() => starterDraft(bootState.players))
+  const [lastExpenseId, setLastExpenseId] = useState<string | null>(null)
+  const [cloudStatus, setCloudStatus] = useState(hasSupabaseConfig ? "Connecting" : "Local only")
+  const [search, setSearch] = useState("")
+  const [expenseSearch, setExpenseSearch] = useState("")
+  const [expensePlayerFilter, setExpensePlayerFilter] = useState("all")
+  const [expandedExpenseIds, setExpandedExpenseIds] = useState<Set<string>>(() => new Set(bootState.expenses[0] ? [bootState.expenses[0].id] : []))
+  const [requestDraft, setRequestDraft] = useState({ playerId: "", amount: "500", reason: "Extra fuel amount", note: "Took my car for another match" })
+  const [adjustDraft, setAdjustDraft] = useState({ playerId: "", amount: "", reason: "", kind: "credit" as "credit" | "debit" })
+  const [playerFilter, setPlayerFilter] = useState<"all" | "creditors" | "debtors">("all")
+  const [requestFilter, setRequestFilter] = useState<RequestStatus | "all">("pending")
+  const [newPlayer, setNewPlayer] = useState({ name: "", phone: "" })
+  const isAdmin = role === "admin"
+  const activeUserId = isAdmin ? requestDraft.playerId : selectedUserId
 
   useEffect(() => {
-    if (sessionStorage.getItem("admin") === "true") setIsAdmin(true)
-    refresh()
-    const stored = localStorage.getItem("expenses")
-    if (stored) setExpenses(JSON.parse(stored))
-  }, [])
-
-  useEffect(() => {
-    const channel = supabase.channel("changes")
-      .on("postgres_changes", { event: "*", schema: "public" }, refresh)
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [])
-
-  // Calculate balances
-  const stats = {}
-  players.forEach(p => { stats[p.id] = { balance: 0 } })
-  transactions.forEach(t => {
-    if (!stats[t.player_id]) return
-    stats[t.player_id].balance += t.type === "credit" ? t.amount : -t.amount
-  })
-
-  const totalBalance = Object.values(stats).filter(s => s.balance > 0).reduce((a, b) => a + b.balance, 0)
-  const totalPending = Math.abs(Object.values(stats).filter(s => s.balance < 0).reduce((a, b) => a + b.balance, 0))
-  const debtorCount = Object.values(stats).filter(s => s.balance < 0).length
-
-  const filteredPlayers = players.filter(p => {
-    const bal = stats[p.id]?.balance || 0
-    if (filter === "debtors") return bal < 0
-    if (filter === "creditors") return bal > 0
-    return true
-  })
-
-  // Actions
-  const addPlayer = async () => {
-    if (!newPlayerName.trim()) return alert("Please enter a name")
-    await supabase.from("players").insert({ id: uid(), name: newPlayerName.trim() })
-    setNewPlayerName("")
-    setShowAddPlayerModal(false)
-    refresh()
-  }
-
-  const addCredit = async () => {
-    const amt = Number(creditAmount)
-    if (!amt || amt <= 0) return alert("Please enter a valid amount")
-    await supabase.from("transactions").insert({
-      id: uid(),
-      player_id: selectedPlayer.id,
-      amount: amt,
-      type: "credit",
-      category: "Credit",
-      date: new Date().toISOString().split("T")[0],
-      note: "Admin credit"
-    })
-    setCreditAmount("")
-    setShowCreditModal(false)
-    setSelectedPlayer(null)
-    refresh()
-  }
-
-  const addDebit = async () => {
-    const amt = Number(debitAmount)
-    if (!amt || amt <= 0) return alert("Please enter a valid amount")
-    await supabase.from("transactions").insert({
-      id: uid(),
-      player_id: selectedPlayer.id,
-      amount: amt,
-      type: "debit",
-      category: "Deduction",
-      date: new Date().toISOString().split("T")[0],
-      note: "Admin deduction"
-    })
-    setDebitAmount("")
-    setShowDebitModal(false)
-    setSelectedPlayer(null)
-    refresh()
-  }
-
-  const createExpense = async () => {
-    const amt = Number(expenseAmount)
-    if (!amt || !expenseCategory || expensePlayers.length === 0) {
-      return alert("Please fill all fields and select players")
-    }
-
-    const totalWeight = expensePlayers.reduce((sum, p) => sum + p.weight, 0)
-    const now = new Date().toISOString().split("T")[0]
-
-    for (const player of expensePlayers) {
-      const share = Math.round((player.weight / totalWeight) * amt)
-      
-      // Add debit for share
-      await supabase.from("transactions").insert({
-        id: uid(),
-        player_id: player.id,
-        amount: share,
-        type: "debit",
-        category: expenseCategory,
-        date: now,
-        note: `${expenseTitle || "Expense"} - ${player.weight}x share`
-      })
-
-      // Add credit for vehicle if applicable
-      const vehicle = vehicleCredits.find(v => v.player_id === player.id)
-      if (vehicle && vehicle.amount > 0) {
-        await supabase.from("transactions").insert({
-          id: uid(),
-          player_id: player.id,
-          amount: vehicle.amount,
-          type: "credit",
-          category: "Vehicle",
-          date: now,
-          note: `${expenseTitle || "Expense"} - Vehicle credit`
-        })
+    let active = true
+    async function loadCloudState() {
+      if (!supabase) return
+      const { data, error } = await supabase.from("app_state").select("data").eq("id", "default").maybeSingle()
+      if (!active) return
+      if (error) {
+        setCloudStatus("Supabase table missing")
+        return
       }
+      if (data?.data) {
+        setState(data.data as AppState)
+        setDraft(starterDraft((data.data as AppState).players))
+      }
+      setCloudStatus("Supabase synced")
     }
+    loadCloudState()
+    return () => {
+      active = false
+    }
+  }, [])
 
-    // Save expense record
-    const newExp = {
-      id: uid(),
-      title: expenseTitle || EXPENSE_CATEGORIES.find(c => c.id === expenseCategory)?.name,
-      amount: amt,
-      category: expenseCategory,
-      date: now,
-      players: expensePlayers.map(p => {
-        const share = Math.round((p.weight / totalWeight) * amt)
-        const vehicle = vehicleCredits.find(v => v.player_id === p.id)
-        return {
-          id: p.id,
-          name: p.name,
-          weight: p.weight,
-          share,
-          vehicle: vehicle?.amount || 0
-        }
+  useEffect(() => {
+    saveLocalState(state)
+    if (!supabase) return
+    const client = supabase
+    const handle = window.setTimeout(async () => {
+      const { error } = await client.from("app_state").upsert({ id: "default", data: state, updated_at: new Date().toISOString() })
+      setCloudStatus(error ? "Supabase save failed" : "Supabase synced")
+    }, 450)
+    return () => window.clearTimeout(handle)
+  }, [state])
+
+  useEffect(() => {
+    if (role) localStorage.setItem("ra-role", role)
+    else localStorage.removeItem("ra-role")
+  }, [role])
+
+  useEffect(() => {
+    if (selectedUserId) localStorage.setItem("ra-user-id", selectedUserId)
+  }, [selectedUserId])
+
+  const playerMap = useMemo(() => new Map(state.players.map((player) => [player.id, player])), [state.players])
+
+  const balances = useMemo(() => {
+    const result = new Map<string, number>()
+    state.players.forEach((player) => result.set(player.id, 0))
+
+    state.expenses.forEach((expense) => {
+      expense.participantIds.forEach((playerId) => {
+        result.set(playerId, (result.get(playerId) ?? 0) - playerShare(expense, playerId))
       })
-    }
-    const updated = [newExp, ...expenses]
-    localStorage.setItem("expenses", JSON.stringify(updated))
-    setExpenses(updated)
-
-    // Reset form
-    setExpenseTitle("")
-    setExpenseAmount("")
-    setExpenseCategory("")
-    setExpensePlayers([])
-    setVehicleCredits([])
-    setTab("home")
-    refresh()
-  }
-
-  const toggleExpensePlayer = (player) => {
-    const exists = expensePlayers.find(p => p.id === player.id)
-    if (exists) {
-      setExpensePlayers(expensePlayers.filter(p => p.id !== player.id))
-      setVehicleCredits(vehicleCredits.filter(v => v.player_id !== player.id))
-    } else {
-      setExpensePlayers([...expensePlayers, { ...player, weight: 1 }])
-    }
-  }
-
-  const updateWeight = (playerId, weight) => {
-    setExpensePlayers(expensePlayers.map(p => p.id === playerId ? { ...p, weight } : p))
-  }
-
-  const toggleVehicle = (playerId) => {
-    const exists = vehicleCredits.find(v => v.player_id === playerId)
-    if (exists) {
-      setVehicleCredits(vehicleCredits.filter(v => v.player_id !== playerId))
-    } else {
-      setVehicleCredits([...vehicleCredits, { player_id: playerId, amount: 0 }])
-    }
-  }
-
-  const updateVehicleAmount = (playerId, amount) => {
-    setVehicleCredits(vehicleCredits.map(v => 
-      v.player_id === playerId ? { ...v, amount: Number(amount) || 0 } : v
-    ))
-  }
-
-  const sendRequest = async () => {
-    if (!reqPlayerId || !reqAmount) return alert("Please fill all fields")
-    await supabase.from("credit_requests").insert({
-      id: uid(),
-      player_id: reqPlayerId,
-      amount: Number(reqAmount),
-      note: reqNote,
-      status: "pending"
+      expense.payments.forEach((payment) => {
+        result.set(payment.playerId, (result.get(payment.playerId) ?? 0) + payment.amount)
+      })
     })
-    setReqPlayerId("")
-    setReqAmount("")
-    setReqNote("")
-    refresh()
-  }
 
-  const approveRequest = async (req) => {
-    await supabase.from("transactions").insert({
-      id: uid(),
-      player_id: req.player_id,
-      amount: req.amount,
-      type: "credit",
-      category: "Request",
-      date: new Date().toISOString().split("T")[0],
-      note: req.note || "Approved request"
+    state.adjustments.forEach((adjustment) => {
+      result.set(adjustment.playerId, (result.get(adjustment.playerId) ?? 0) + (adjustment.kind === "credit" ? adjustment.amount : -adjustment.amount))
     })
-    await supabase.from("credit_requests").update({ status: "approved" }).eq("id", req.id)
-    refresh()
+
+    return result
+  }, [state])
+
+  const totals = useMemo(() => {
+    const values = [...balances.values()]
+    return {
+      credits: values.filter((value) => value > 0).reduce((sum, value) => sum + value, 0),
+      debts: Math.abs(values.filter((value) => value < 0).reduce((sum, value) => sum + value, 0)),
+      expenses: state.expenses.reduce((sum, expense) => sum + expenseTotal(expense), 0),
+      creditors: values.filter((value) => value > 0).length,
+      debtors: values.filter((value) => value < 0).length,
+    }
+  }, [balances, state.expenses])
+
+  const pendingRechargeCount = state.requests.filter((request) => request.status === "pending").length
+
+  const recentEntries = useMemo(() => {
+    const expenseRows = state.expenses.map((expense) => ({
+      id: expense.id,
+      title: expense.name,
+      meta: `${labelFor(expense.type)} | ${expense.participantIds.length} players`,
+      amount: expenseTotal(expense),
+      createdAt: expense.createdAt,
+      type: "expense",
+    }))
+    const adjustmentRows = state.adjustments.map((adjustment) => ({
+      id: adjustment.id,
+      title: playerMap.get(adjustment.playerId)?.name ?? "Player",
+      meta: adjustment.reason || (adjustment.kind === "credit" ? "Credit added" : "Debit added"),
+      amount: adjustment.kind === "credit" ? adjustment.amount : -adjustment.amount,
+      createdAt: adjustment.createdAt,
+      type: adjustment.kind,
+    }))
+    return [...expenseRows, ...adjustmentRows].sort((a, b) => b.createdAt - a.createdAt)
+  }, [playerMap, state.adjustments, state.expenses])
+
+  const visiblePlayers = useMemo(
+    () => state.players.filter((player) => player.name.toLowerCase().includes(search.toLowerCase())),
+    [search, state.players],
+  )
+
+  const visibleExpenses = useMemo(
+    () =>
+      state.expenses
+        .filter((expense) => expense.name.toLowerCase().includes(expenseSearch.toLowerCase()))
+        .filter((expense) => {
+          const filterId = isAdmin ? expensePlayerFilter : selectedUserId
+          if (filterId === "all") return true
+          return expense.participantIds.includes(filterId) || expense.payments.some((payment) => payment.playerId === filterId)
+        }),
+    [expensePlayerFilter, expenseSearch, isAdmin, selectedUserId, state.expenses],
+  )
+
+  function updateDraftPayment(id: string, patch: Partial<Payment>) {
+    setDraft((current) => ({ ...current, payments: current.payments.map((payment) => (payment.id === id ? { ...payment, ...patch } : payment)) }))
   }
 
-  const rejectRequest = async (id) => {
-    await supabase.from("credit_requests").update({ status: "rejected" }).eq("id", id)
-    refresh()
+  function addPlayer() {
+    if (!newPlayer.name.trim()) return
+    const player: Player = { id: newId(), name: newPlayer.name.trim(), phone: newPlayer.phone.trim() || undefined }
+    setState((current) => ({ ...current, players: [...current.players, player] }))
+    setDraft((current) => ({ ...current, participantIds: [...current.participantIds, player.id], splitWeights: { ...current.splitWeights, [player.id]: 1 } }))
+    setNewPlayer({ name: "", phone: "" })
+    setScreen("players")
   }
 
-  const categoryTotals = EXPENSE_CATEGORIES.map(cat => ({
-    ...cat,
-    total: expenses.filter(e => e.category === cat.id).reduce((sum, e) => sum + e.amount, 0)
-  }))
+  function deletePlayer(playerId: string) {
+    const player = playerMap.get(playerId)
+    if (!player || !confirm(`Delete ${player.name}? Existing expenses will stay, but this player will be removed from future lists.`)) return
+    setState((current) => ({
+      ...current,
+      players: current.players.filter((item) => item.id !== playerId),
+      requests: current.requests.filter((item) => item.playerId !== playerId),
+      adjustments: current.adjustments.filter((item) => item.playerId !== playerId),
+    }))
+    setScreen("players")
+  }
 
-  const pendingRequests = requests.filter(r => r.status === "pending")
+  function createExpense() {
+    const expense: Expense = {
+      ...draft,
+      id: newId(),
+      payments: draft.payments.filter((payment) => payment.playerId && payment.amount > 0),
+      participantIds: draft.participantIds,
+      splitWeights: draft.splitWeights,
+      createdAt: Date.now(),
+    }
+    if (!expenseTotal(expense) || !expense.participantIds.length) return
+    setState((current) => ({ ...current, expenses: [expense, ...current.expenses] }))
+    setLastExpenseId(expense.id)
+    setScreen("expense-success")
+  }
+
+  function resetDraft() {
+    if (!isAdmin) return
+    setDraft(starterDraft(state.players))
+    setScreen("expense-basic")
+  }
+
+  function submitRequest() {
+    if (!activeUserId || !Number(requestDraft.amount)) return
+    const request: CreditRequest = {
+      id: newId(),
+      playerId: activeUserId,
+      amount: Number(requestDraft.amount),
+      reason: requestDraft.reason,
+      note: requestDraft.note,
+      status: "pending",
+      createdAt: Date.now(),
+    }
+    setState((current) => ({ ...current, requests: [request, ...current.requests] }))
+    setScreen(role === "admin" ? "pending-requests" : "dashboard")
+  }
+
+  function updateRequest(id: string, status: RequestStatus) {
+    setState((current) => {
+      const request = current.requests.find((item) => item.id === id)
+    const adjustment =
+        status === "approved" && request
+          ? [{ id: newId(), playerId: request.playerId, kind: "credit" as const, amount: request.amount, reason: `Recharge approved: ${request.reason}`, createdAt: Date.now() }]
+          : []
+      return {
+        ...current,
+        requests: current.requests.map((item) => (item.id === id ? { ...item, status } : item)),
+        adjustments: [...adjustment, ...current.adjustments],
+      }
+    })
+  }
+
+  function applyAdjustment() {
+    if (!adjustDraft.playerId || !Number(adjustDraft.amount)) return
+    const adjustment: Adjustment = {
+      id: newId(),
+      playerId: adjustDraft.playerId,
+      kind: adjustDraft.kind,
+      amount: Number(adjustDraft.amount),
+      reason: adjustDraft.reason || (adjustDraft.kind === "credit" ? "Manual credit" : "Manual debit"),
+      createdAt: Date.now(),
+    }
+    setState((current) => ({ ...current, adjustments: [adjustment, ...current.adjustments] }))
+    setAdjustDraft({ playerId: "", amount: "", reason: "", kind: adjustDraft.kind })
+    setScreen("dashboard")
+  }
+
+  function clearData() {
+    if (!confirm("Reset all players, expenses, requests, credits, and debits?")) return
+    const fresh = defaultState()
+    setState(fresh)
+    setDraft(starterDraft(fresh.players))
+  }
+
+  function updateDraftWeight(playerId: string, value: number) {
+    setDraft((current) => ({ ...current, splitWeights: { ...current.splitWeights, [playerId]: value } }))
+  }
+
+  function toggleExpenseDetails(id: string) {
+    setExpandedExpenseIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const lastExpense = state.expenses.find((expense) => expense.id === lastExpenseId)
+
+  if (!role) {
+    return (
+      <main className="app-shell auth-shell">
+        <section className="login-screen">
+          <img src={LOGO_URL} alt="RA Challenger logo" />
+          <h1>RA Challenger</h1>
+          <p>Choose how you want to enter the app.</p>
+          <button className="primary success" onClick={() => { setRole("admin"); setScreen("dashboard") }}>
+            Admin Login
+          </button>
+          <div className="login-card">
+            <Field label="Player Login">
+              <select value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)}>
+                {state.players.map((player) => (
+                  <option key={player.id} value={player.id}>{player.name}</option>
+                ))}
+              </select>
+            </Field>
+            <button className="primary" onClick={() => { setRole("user"); setScreen("dashboard") }}>
+              Continue as User
+            </button>
+          </div>
+        </section>
+      </main>
+    )
+  }
 
   return (
-    <div style={s.root}>
-      {/* Header */}
-      <header style={s.header}>
-        <img src={LOGO_URL} alt="Logo" style={s.logo} />
-        <div style={s.headerText}>
-          <div style={s.title}>CHALLENGERS</div>
-          <div style={s.subtitle}>Rohan Abhilasha {isAdmin && "⚡"}</div>
+    <main className="app-shell">
+      <header className="topbar">
+        <button className="icon-button" onClick={() => setScreen("dashboard")} aria-label="Back to dashboard">
+          ☰
+        </button>
+        <div className="brand-lockup">
+          <img className="team-logo-img" src={LOGO_URL} alt="RA Challenger logo" />
+          <div>
+            <p>RA Challenger</p>
+            <span>{isAdmin ? "Rohan Abhilasha" : playerMap.get(selectedUserId)?.name ?? "Player"} <b>{isAdmin ? "Admin" : "User"}</b></span>
+          </div>
         </div>
-        <button style={s.notif} onClick={() => setTab("requests")}>
+        <button className="notify-button" onClick={() => setScreen(isAdmin ? "pending-requests" : "credit-request")} aria-label="Recharge">
           🔔
-          {pendingRequests.length > 0 && <span style={s.badge}>{pendingRequests.length}</span>}
+          {isAdmin && pendingRechargeCount > 0 && <span>{pendingRechargeCount}</span>}
         </button>
       </header>
 
-      {/* Content */}
-      <main style={s.main}>
-        
-        {/* HOME */}
-        {tab === "home" && (
-          <div style={s.page}>
-            <div style={s.balanceCard}>
-              <div style={s.balanceLabel}>TOTAL BALANCE</div>
-              <div style={s.balanceAmount}>₹{totalBalance.toLocaleString()}</div>
-              <div style={s.balanceGrowth}>↗ 12.5% vs last month</div>
-            </div>
-
-            <div style={s.statsRow}>
-              <div style={{ ...s.statCard, ...s.statRed }}>
-                <div style={s.statLabel}>PENDING</div>
-                <div style={s.statValue}>₹{totalPending.toLocaleString()}</div>
-                <div style={s.statSub}>{debtorCount} players</div>
-              </div>
-              <div style={{ ...s.statCard, ...s.statBlue }}>
-                <div style={s.statLabel}>PLAYERS</div>
-                <div style={s.statValue}>{players.length}</div>
-                <div style={s.statSub}>Squad</div>
-              </div>
-            </div>
-
-            {isAdmin && (
-              <div style={s.actions}>
-                <div style={s.sectionTitle}>QUICK ACTIONS</div>
-                <div style={s.actionsGrid}>
-                  <button style={s.actionBtn} onClick={() => setShowAddPlayerModal(true)}>
-                    <div style={s.actionIcon}>👤</div>
-                    <div style={s.actionLabel}>Add Player</div>
-                  </button>
-                  <button style={s.actionBtn} onClick={() => setTab("expense")}>
-                    <div style={s.actionIcon}>💰</div>
-                    <div style={s.actionLabel}>Add Expense</div>
-                  </button>
-                  <button style={s.actionBtn} onClick={() => setTab("players")}>
-                    <div style={s.actionIcon}>✅</div>
-                    <div style={s.actionLabel}>Settle Dues</div>
-                  </button>
-                  <button style={s.actionBtn} onClick={() => setTab("expenses")}>
-                    <div style={s.actionIcon}>📊</div>
-                    <div style={s.actionLabel}>View History</div>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {debtorCount > 0 && (
-              <div style={s.alert}>
-                <div>⚠️ {debtorCount} players have pending dues</div>
-                <button style={s.alertBtn} onClick={() => { setTab("players"); setFilter("debtors") }}>
-                  VIEW
-                </button>
-              </div>
-            )}
-
-            <div style={s.activity}>
-              <div style={s.sectionTitle}>RECENT ACTIVITY</div>
-              {transactions.slice(0, 5).map(tx => {
-                const player = players.find(p => p.id === tx.player_id)
-                return (
-                  <div key={tx.id} style={s.activityItem}>
-                    <div style={{ ...s.activityAvatar, background: tx.type === "credit" ? "#4ECDC4" : "#FF6B6B" }}>
-                      {player?.name?.[0]?.toUpperCase()}
-                    </div>
-                    <div style={s.activityInfo}>
-                      <div style={s.activityName}>{player?.name}</div>
-                      <div style={s.activityDate}>{new Date(tx.date).toLocaleDateString()}</div>
-                    </div>
-                    <div style={{ ...s.activityAmount, color: tx.type === "credit" ? "#4ECDC4" : "#FF6B6B" }}>
-                      {tx.type === "credit" ? "+" : "-"}₹{tx.amount}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+      {screen === "dashboard" && (
+        <section className="screen dashboard">
+          <div className="balance-panel">
+            <div className="batter-art" />
+            <span>Total balance</span>
+            <strong>{money(totals.credits - totals.debts)}</strong>
+            <small>Total Credits - Total Debts</small>
+            <div className="sparkline" />
           </div>
-        )}
 
-        {/* PLAYERS */}
-        {tab === "players" && (
-          <div style={s.page}>
-            <div style={s.pageHeader}>
-              <button style={s.backBtn} onClick={() => setTab("home")}>←</button>
-              <div style={s.pageTitle}>Players</div>
-              {isAdmin && <button style={s.addBtn} onClick={() => setShowAddPlayerModal(true)}>+</button>}
-            </div>
-
-            <div style={s.filters}>
-              <button 
-                style={{ ...s.filterBtn, ...(filter === "all" ? s.filterActive : {}) }}
-                onClick={() => setFilter("all")}
-              >
-                All ({players.length})
-              </button>
-              <button 
-                style={{ ...s.filterBtn, ...(filter === "debtors" ? s.filterActive : {}) }}
-                onClick={() => setFilter("debtors")}
-              >
-                Debtors ({debtorCount})
-              </button>
-              <button 
-                style={{ ...s.filterBtn, ...(filter === "creditors" ? s.filterActive : {}) }}
-                onClick={() => setFilter("creditors")}
-              >
-                Creditors
-              </button>
-            </div>
-
-            <div style={s.playersList}>
-              {filteredPlayers.map(p => {
-                const bal = stats[p.id]?.balance || 0
-                return (
-                  <div key={p.id} style={s.playerCard}>
-                    <div style={{ ...s.playerAvatar, background: bal < 0 ? "#FF6B6B" : "#4ECDC4" }}>
-                      {p.name[0].toUpperCase()}
-                    </div>
-                    <div style={s.playerInfo}>
-                      <div style={s.playerName}>{p.name}</div>
-                      <div style={s.playerStatus}>{bal < 0 ? "Pending dues" : "Creditor"}</div>
-                    </div>
-                    <div style={{ ...s.playerBalance, color: bal < 0 ? "#FF6B6B" : "#4ECDC4" }}>
-                      {bal >= 0 ? "+" : ""}₹{bal.toFixed(0)}
-                    </div>
-                    {isAdmin && (
-                      <div style={s.playerActions}>
-                        <button 
-                          style={s.creditBtn}
-                          onClick={() => { setSelectedPlayer(p); setShowCreditModal(true) }}
-                        >
-                          +
-                        </button>
-                        <button 
-                          style={s.debitBtn}
-                          onClick={() => { setSelectedPlayer(p); setShowDebitModal(true) }}
-                        >
-                          −
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+          <div className="metric-grid three">
+            <Metric label="Pending dues" value={money(totals.debts)} tone="debit" detail={`${totals.debtors} players`} />
+            <Metric label="Total credits" value={money(totals.credits)} tone="credit" />
+            <Metric label="Recharge approvals" value={String(pendingRechargeCount)} tone="warn" />
           </div>
-        )}
 
-        {/* EXPENSE */}
-        {tab === "expense" && (
-          <div style={s.page}>
-            <div style={s.pageHeader}>
-              <button style={s.backBtn} onClick={() => setTab("home")}>←</button>
-              <div style={s.pageTitle}>Create Expense</div>
-              <div style={{ width: 40 }} />
-            </div>
+          <div className="quick-grid">
+            {isAdmin && <QuickAction label="Add Player" icon="👤" onClick={() => setScreen("add-player")} />}
+            {isAdmin && <QuickAction label="Add Expense" icon="₹" onClick={resetDraft} />}
+            <QuickAction label="Recharge" icon="↻" onClick={() => setScreen(isAdmin ? "pending-requests" : "credit-request")} />
+            <QuickAction label="Players" icon="P" onClick={() => setScreen("players")} />
+            {!isAdmin && <QuickAction label="Expenses" icon="E" onClick={() => setScreen("expenses")} />}
+          </div>
 
-            {!isAdmin ? (
-              <div style={s.locked}>
-                <div style={s.lockIcon}>🔒</div>
-                <div style={s.lockText}>Admin access required</div>
-                <button style={s.loginBtn} onClick={() => setShowLoginModal(true)}>Login</button>
-              </div>
-            ) : (
-              <div style={s.form}>
-                <input
-                  value={expenseTitle}
-                  onChange={e => setExpenseTitle(e.target.value)}
-                  placeholder="Expense title (e.g., Sunglow Ground)"
-                  style={s.input}
-                />
-                <input
-                  value={expenseAmount}
-                  onChange={e => setExpenseAmount(e.target.value)}
-                  placeholder="Total amount (₹)"
-                  type="number"
-                  style={s.input}
-                />
+          {isAdmin && pendingRechargeCount > 0 && (
+            <button className="danger-alert" onClick={() => setScreen("pending-requests")}>
+              <b>!</b>
+              <span>{pendingRechargeCount} recharge request{pendingRechargeCount > 1 ? "s" : ""} waiting for admin approval</span>
+              <strong>Review</strong>
+            </button>
+          )}
+        </section>
+      )}
 
-                <div style={s.formLabel}>Category</div>
-                <div style={s.categoryGrid}>
-                  {EXPENSE_CATEGORIES.map(cat => (
-                    <button
-                      key={cat.id}
-                      onClick={() => setExpenseCategory(cat.id)}
-                      style={{
-                        ...s.categoryBtn,
-                        ...(expenseCategory === cat.id ? { background: cat.color + "33", borderColor: cat.color } : {})
-                      }}
-                    >
-                      <div style={{ fontSize: 32 }}>{cat.emoji}</div>
-                      <div style={{ fontSize: 11 }}>{cat.name}</div>
-                    </button>
+      {screen === "add-player" && (
+        <FormScreen title="Add Player" back={() => setScreen("players")}>
+          {!isAdmin && <EmptyState text="Only admin can add players." />}
+          {isAdmin && (
+            <>
+          <Field label="Player Name">
+            <input placeholder="e.g. Amit Tiwary" value={newPlayer.name} onChange={(event) => setNewPlayer((current) => ({ ...current, name: event.target.value }))} />
+          </Field>
+          <Field label="Phone (optional)">
+            <input placeholder="9876543210" value={newPlayer.phone} onChange={(event) => setNewPlayer((current) => ({ ...current, phone: event.target.value }))} />
+          </Field>
+          <button className="primary success" onClick={addPlayer}>
+            Add Player
+          </button>
+            </>
+          )}
+        </FormScreen>
+      )}
+
+      {screen === "expense-basic" && (
+        <FormScreen title="Add Expense" back={() => setScreen("dashboard")}>
+          {!isAdmin && <EmptyState text="Only admin can add expenses." />}
+          {isAdmin && (
+            <>
+          <TypePicker value={draft.type} onChange={(type) => setDraft((current) => ({ ...current, type }))} />
+          <Field label="Expense Name">
+            <input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
+          </Field>
+          <Field label="Date">
+            <input type="date" value={draft.date} onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))} />
+          </Field>
+          <Field label="Total Amount">
+            <input value={expenseTotal(draft)} readOnly />
+          </Field>
+          <button className="primary" onClick={() => setScreen("expense-payments")}>
+            Next: Add Payments
+          </button>
+            </>
+          )}
+        </FormScreen>
+      )}
+
+      {screen === "expense-payments" && (
+        <FormScreen title="Add Payments" back={() => setScreen("expense-basic")}>
+          <button
+            className="primary subtle"
+            onClick={() =>
+              setDraft((current) => ({
+                ...current,
+                payments: [...current.payments, { id: newId(), playerId: state.players[0]?.id ?? "", amount: 0, label: "Food" }],
+              }))
+            }
+          >
+            Add Spending / Credit
+          </button>
+          <div className="list">
+            {draft.payments.map((payment) => (
+              <div className="payment-card" key={payment.id}>
+                <select value={payment.playerId} onChange={(event) => updateDraftPayment(payment.id, { playerId: event.target.value })}>
+                  {state.players.map((player) => (
+                    <option key={player.id} value={player.id}>
+                      {player.name}
+                    </option>
                   ))}
-                </div>
-
-                <div style={s.formLabel}>Contributors</div>
-                {players.map(p => {
-                  const selected = expensePlayers.find(ep => ep.id === p.id)
-                  const vehicle = vehicleCredits.find(v => v.player_id === p.id)
-                  return (
-                    <div key={p.id} style={s.contributor}>
-                      <button
-                        onClick={() => toggleExpensePlayer(p)}
-                        style={{
-                          ...s.contributorBtn,
-                          ...(selected ? s.contributorActive : {})
-                        }}
-                      >
-                        <span>{p.name}</span>
-                        {selected && (
-                          <select
-                            value={selected.weight}
-                            onChange={e => updateWeight(p.id, Number(e.target.value))}
-                            style={s.weightSelect}
-                            onClick={e => e.stopPropagation()}
-                          >
-                            <option value={1}>1x</option>
-                            <option value={2}>2x</option>
-                            <option value={3}>3x</option>
-                            <option value={4}>4x</option>
-                          </select>
-                        )}
-                      </button>
-                      {selected && (
-                        <div style={s.vehicleRow}>
-                          <button
-                            onClick={() => toggleVehicle(p.id)}
-                            style={{ ...s.vehicleBtn, ...(vehicle ? s.vehicleActive : {}) }}
-                          >
-                            🚗 Vehicle
-                          </button>
-                          {vehicle && (
-                            <input
-                              type="number"
-                              value={vehicle.amount || ""}
-                              onChange={e => updateVehicleAmount(p.id, e.target.value)}
-                              placeholder="₹"
-                              style={s.vehicleInput}
-                            />
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-
-                {expensePlayers.length > 0 && (
-                  <button style={s.createBtn} onClick={createExpense}>
-                    Create Expense
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* EXPENSES */}
-        {tab === "expenses" && (
-          <div style={s.page}>
-            <div style={s.pageHeader}>
-              <button style={s.backBtn} onClick={() => setTab("home")}>←</button>
-              <div style={s.pageTitle}>Expenses</div>
-              <div style={{ width: 40 }} />
-            </div>
-
-            <div style={s.categoryTotals}>
-              {categoryTotals.map(cat => (
-                <div key={cat.id} style={s.categoryTotal}>
-                  <div style={{ fontSize: 28 }}>{cat.emoji}</div>
-                  <div>
-                    <div style={s.categoryTotalLabel}>{cat.name}</div>
-                    <div style={s.categoryTotalValue}>₹{cat.total.toLocaleString()}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {expenses.map(exp => (
-              <div key={exp.id} style={s.expenseCard}>
-                <div style={s.expenseHeader}>
-                  <div>
-                    <div style={s.expenseTitle}>{exp.title}</div>
-                    <div style={s.expenseDate}>{new Date(exp.date).toLocaleDateString()}</div>
-                  </div>
-                  <div style={s.expenseAmount}>₹{exp.amount}</div>
-                </div>
-                <button
-                  style={s.expenseToggle}
-                  onClick={() => setExpandedExpense(expandedExpense === exp.id ? null : exp.id)}
-                >
-                  {expandedExpense === exp.id ? "▲" : "▼"} Details
+                </select>
+                <select value={payment.label} onChange={(event) => updateDraftPayment(payment.id, { label: event.target.value })}>
+                  {paymentCategories.map((category) => (
+                    <option key={category.label} value={category.label}>
+                      {category.label}
+                    </option>
+                  ))}
+                </select>
+                <input type="number" value={payment.amount} onChange={(event) => updateDraftPayment(payment.id, { amount: Number(event.target.value) })} />
+                <button className="remove-payment" onClick={() => setDraft((current) => ({ ...current, payments: current.payments.filter((item) => item.id !== payment.id) }))}>
+                  Remove
                 </button>
-                {expandedExpense === exp.id && (
-                  <div style={s.expenseDetails}>
-                    {exp.players.map(p => (
-                      <div key={p.id} style={s.expensePlayer}>
-                        <div>
-                          <div>{p.name} ({p.weight}x)</div>
-                          {p.vehicle > 0 && <div style={s.vehicleTag}>🚗 ₹{p.vehicle}</div>}
-                        </div>
-                        <div>₹{p.share}</div>
-                      </div>
-                    ))}
-                  </div>
+              </div>
+            ))}
+          </div>
+          <div className="total-row">
+            <span>Total Paid</span>
+            <strong>{money(expenseTotal(draft))}</strong>
+          </div>
+          <button className="primary" onClick={() => setScreen("expense-players")}>
+            Next: Select Players
+          </button>
+        </FormScreen>
+      )}
+
+      {screen === "expense-players" && (
+        <FormScreen title="Select Players" back={() => setScreen("expense-payments")}>
+          <div className="search-box">
+            <input placeholder="Search players..." value={search} onChange={(event) => setSearch(event.target.value)} />
+          </div>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={draft.participantIds.length === state.players.length}
+              onChange={(event) => setDraft((current) => ({ ...current, participantIds: event.target.checked ? state.players.map((player) => player.id) : [] }))}
+            />
+            Select All ({state.players.length})
+          </label>
+          <div className="select-list">
+            {visiblePlayers.map((player) => (
+              <div className="player-pick-row" key={player.id}>
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={draft.participantIds.includes(player.id)}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        participantIds: event.target.checked
+                          ? [...current.participantIds, player.id]
+                          : current.participantIds.filter((id) => id !== player.id),
+                      }))
+                    }
+                  />
+                  {player.name}
+                </label>
+                {draft.participantIds.includes(player.id) && (
+                  <select className="weight-select" value={draft.splitWeights[player.id] ?? 1} onChange={(event) => updateDraftWeight(player.id, Number(event.target.value))}>
+                    <option value={1}>1x</option>
+                    <option value={2}>2x</option>
+                    <option value={3}>3x</option>
+                    <option value={4}>4x</option>
+                  </select>
                 )}
               </div>
             ))}
           </div>
-        )}
+          <div className="sticky-actions">
+            <span>Selected: {draft.participantIds.length} players</span>
+            <button className="primary compact" onClick={() => setScreen("expense-review")}>
+              Next: Review
+            </button>
+          </div>
+        </FormScreen>
+      )}
 
-        {/* REQUESTS */}
-        {tab === "requests" && (
-          <div style={s.page}>
-            <div style={s.pageHeader}>
-              <button style={s.backBtn} onClick={() => setTab("home")}>←</button>
-              <div style={s.pageTitle}>Requests</div>
-              <div style={{ width: 40 }} />
+      {screen === "expense-review" && (
+        <FormScreen title="Review Expense" back={() => setScreen("expense-players")}>
+          <div className="review-card">
+            <div>
+              <span>Total Amount</span>
+              <strong>{money(expenseTotal(draft))}</strong>
             </div>
-
-            <div style={s.requestForm}>
-              <div style={s.formLabel}>Request Credit</div>
-              <select value={reqPlayerId} onChange={e => setReqPlayerId(e.target.value)} style={s.input}>
-                <option value="">Select Player</option>
-                {players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <input
-                value={reqAmount}
-                onChange={e => setReqAmount(e.target.value)}
-                placeholder="Amount (₹)"
-                type="number"
-                style={s.input}
-              />
-              <input
-                value={reqNote}
-                onChange={e => setReqNote(e.target.value)}
-                placeholder="Note (optional)"
-                style={s.input}
-              />
-              <button style={s.submitBtn} onClick={sendRequest}>Submit Request</button>
+            <div>
+              <span>Players</span>
+              <strong>{draft.participantIds.length}</strong>
             </div>
-
-            {isAdmin && (
-              <div>
-                <div style={s.sectionTitle}>ADMIN: REQUESTS ({pendingRequests.length} pending)</div>
-                {requests.map(req => {
-                  const player = players.find(p => p.id === req.player_id)
-                  return (
-                    <div key={req.id} style={s.requestCard}>
-                      <div style={s.requestInfo}>
-                        <div style={s.requestPlayer}>{player?.name}</div>
-                        <div style={s.requestAmount}>₹{req.amount}</div>
-                        {req.note && <div style={s.requestNote}>{req.note}</div>}
-                        <div style={{
-                          ...s.requestStatus,
-                          color: req.status === "approved" ? "#4ECDC4" : req.status === "rejected" ? "#FF6B6B" : "#FFD93D"
-                        }}>
-                          ● {req.status.toUpperCase()}
-                        </div>
-                      </div>
-                      {req.status === "pending" && (
-                        <div style={s.requestActions}>
-                          <button style={s.approveBtn} onClick={() => approveRequest(req)}>✓</button>
-                          <button style={s.rejectBtn} onClick={() => rejectRequest(req.id)}>×</button>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
+            <div>
+              <span>Per Head</span>
+              <strong>{money(splitUnit(draft))}</strong>
+            </div>
+          </div>
+          <SectionHeader title="Payments Summary" />
+          <div className="list">
+            {draft.payments.map((payment) => (
+              <div className="activity-row" key={payment.id}>
+                <Avatar label={playerMap.get(payment.playerId)?.name ?? "?"} />
+                <div>
+                  <strong>{playerMap.get(payment.playerId)?.name}</strong>
+                  <span>{payment.label}</span>
+                </div>
+                <b className="credit">{money(payment.amount)}</b>
               </div>
+            ))}
+          </div>
+          <div className="total-row">
+            <span>Total Paid</span>
+            <strong>{money(expenseTotal(draft))}</strong>
+          </div>
+          <button className="primary" onClick={createExpense}>
+            Create Expense
+          </button>
+        </FormScreen>
+      )}
+
+      {screen === "expense-success" && lastExpense && (
+        <FormScreen title="" back={() => setScreen("dashboard")}>
+          <div className="success-state">
+            <div className="success-icon">✓</div>
+            <h1>Expense Created Successfully!</h1>
+            <p>{lastExpense.name}</p>
+            <span>{new Date(lastExpense.date).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</span>
+          </div>
+          <div className="review-card">
+            <div>
+              <span>Total Amount</span>
+              <strong>{money(expenseTotal(lastExpense))}</strong>
+            </div>
+            <div>
+              <span>Players</span>
+              <strong>{lastExpense.participantIds.length}</strong>
+            </div>
+            <div>
+              <span>Per Head</span>
+              <strong>{money(splitUnit(lastExpense))}</strong>
+            </div>
+          </div>
+          <button className="primary success" onClick={() => { setExpandedExpenseIds((s) => new Set(s).add(lastExpense.id)); setScreen("expenses") }}>
+            View Expense Details
+          </button>
+          <button className="link-button" onClick={() => setScreen("dashboard")}>
+            Back to Dashboard
+          </button>
+        </FormScreen>
+      )}
+
+      {screen === "expenses" && (
+        <section className="screen expenses-screen">
+          <SubNav title="Expenses" back={() => setScreen("dashboard")} />
+          <div className="expense-filter-card">
+            <div className="expense-search">
+              <span>⌕</span>
+              <input placeholder="Search description..." value={expenseSearch} onChange={(event) => setExpenseSearch(event.target.value)} />
+            </div>
+            {isAdmin ? (
+              <select value={expensePlayerFilter} onChange={(event) => setExpensePlayerFilter(event.target.value)}>
+                <option value="all">All Players</option>
+                {state.players.map((player) => (
+                  <option key={player.id} value={player.id}>
+                    {player.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="readonly-filter">{playerMap.get(selectedUserId)?.name ?? "My Expenses"}</div>
             )}
           </div>
-        )}
-
-      </main>
-
-      {/* Bottom Nav */}
-      <nav style={s.nav}>
-        <button style={s.navBtn} onClick={() => setTab("home")}>
-          <div style={{ fontSize: 24 }}>🏠</div>
-          <div style={{ ...s.navLabel, color: tab === "home" ? "#4ECDC4" : "#666" }}>Home</div>
-        </button>
-        <button style={s.navBtn} onClick={() => setTab("players")}>
-          <div style={{ fontSize: 24 }}>👥</div>
-          <div style={{ ...s.navLabel, color: tab === "players" ? "#4ECDC4" : "#666" }}>Players</div>
-        </button>
-        <button style={{ ...s.navBtn, marginTop: -20 }} onClick={() => setTab("expense")}>
-          <div style={s.fab}>+</div>
-        </button>
-        <button style={s.navBtn} onClick={() => setTab("expenses")}>
-          <div style={{ fontSize: 24 }}>📊</div>
-          <div style={{ ...s.navLabel, color: tab === "expenses" ? "#4ECDC4" : "#666" }}>Expenses</div>
-        </button>
-        <button style={s.navBtn} onClick={() => setTab("requests")}>
-          <div style={{ fontSize: 24, position: "relative" }}>
-            🔔
-            {pendingRequests.length > 0 && <span style={s.navBadge}>{pendingRequests.length}</span>}
+          <div className="expenses-list">
+            {visibleExpenses.length === 0 && <EmptyState text="No expenses match this filter." />}
+            {visibleExpenses.map((expense) => (
+              <ExpenseCard
+                key={expense.id}
+                expense={expense}
+                playerMap={playerMap}
+                expanded={expandedExpenseIds.has(expense.id)}
+                onToggle={() => toggleExpenseDetails(expense.id)}
+              />
+            ))}
           </div>
-          <div style={{ ...s.navLabel, color: tab === "requests" ? "#4ECDC4" : "#666" }}>Requests</div>
-        </button>
+        </section>
+      )}
+
+      {screen === "players" && (
+        <section className="screen">
+          <SubNav title="Players" back={() => setScreen("dashboard")} right={<button className="subnav-action" onClick={() => setScreen("add-player")}>👤+</button>} />
+          <div className="search-box players-search">
+            <input placeholder="Search players..." value={search} onChange={(event) => setSearch(event.target.value)} />
+          </div>
+          <div className="segmented">
+            <button className={playerFilter === "all" ? "active" : ""} onClick={() => setPlayerFilter("all")}>All ({state.players.length})</button>
+            <button className={playerFilter === "creditors" ? "active" : ""} onClick={() => setPlayerFilter("creditors")}>Creditors ({totals.creditors})</button>
+            <button className={playerFilter === "debtors" ? "active" : ""} onClick={() => setPlayerFilter("debtors")}>Debtors ({totals.debtors})</button>
+          </div>
+          <div className="list">
+            {[...state.players]
+              .sort((a, b) => (balances.get(b.id) ?? 0) - (balances.get(a.id) ?? 0))
+              .filter((player) => isAdmin || player.id === selectedUserId)
+              .filter((player) => player.name.toLowerCase().includes(search.toLowerCase()))
+              .filter((player) => {
+                const bal = balances.get(player.id) ?? 0
+                if (playerFilter === "creditors") return bal > 0
+                if (playerFilter === "debtors") return bal < 0
+                return true
+              })
+              .map((player) => {
+                const balance = balances.get(player.id) ?? 0
+                return (
+                  <button className="player-row" key={player.id} onClick={() => setScreen(`player:${player.id}`)}>
+                    <Avatar label={player.name} />
+                    <div>
+                      <strong>{player.name}</strong>
+                      <span>{balance > 0 ? "Creditor" : balance < 0 ? "Debtor" : "Balanced"}</span>
+                    </div>
+                    <b className={balance >= 0 ? "credit" : "debit"}>{signedMoney(balance)}</b>
+                  </button>
+                )
+              })}
+          </div>
+        </section>
+      )}
+
+      {screen.startsWith("player:") && <PlayerProfile playerId={screen.split(":")[1]} state={state} balances={balances} setScreen={setScreen} onDelete={deletePlayer} isAdmin={isAdmin} />}
+
+      {screen === "credit-request" && (
+        <FormScreen title="Recharge Request" back={() => setScreen("dashboard")}>
+          <Field label="Player">
+            <select value={isAdmin ? requestDraft.playerId : selectedUserId} disabled={!isAdmin} onChange={(event) => setRequestDraft((current) => ({ ...current, playerId: event.target.value }))}>
+              <option value="">Select player</option>
+              {state.players.map((player) => (
+                <option key={player.id} value={player.id}>
+                  {player.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Amount">
+            <input type="number" value={requestDraft.amount} onChange={(event) => setRequestDraft((current) => ({ ...current, amount: event.target.value }))} />
+          </Field>
+          <Field label="Reason">
+            <input placeholder="Recharge reason" value={requestDraft.reason} onChange={(event) => setRequestDraft((current) => ({ ...current, reason: event.target.value }))} />
+          </Field>
+          <Field label="Note (optional)">
+            <input value={requestDraft.note} onChange={(event) => setRequestDraft((current) => ({ ...current, note: event.target.value }))} />
+          </Field>
+          <button className="primary" onClick={submitRequest}>
+            Send Recharge Request
+          </button>
+        </FormScreen>
+      )}
+
+      {screen === "pending-requests" && (
+        <section className="screen">
+          <SubNav title="Recharge Approvals" back={() => setScreen("dashboard")} right={<button className="subnav-action" onClick={() => setScreen("credit-request")}>+</button>} />
+          {!isAdmin && <EmptyState text="Recharge approvals are available for admin only." />}
+          {isAdmin && (
+            <>
+          <div className="segmented">
+            <button className={requestFilter === "pending" ? "active" : ""} onClick={() => setRequestFilter("pending")}>Pending ({state.requests.filter((item) => item.status === "pending").length})</button>
+            <button className={requestFilter === "approved" ? "active" : ""} onClick={() => setRequestFilter("approved")}>Approved</button>
+            <button className={requestFilter === "rejected" ? "active" : ""} onClick={() => setRequestFilter("rejected")}>Rejected</button>
+          </div>
+          <div className="list">
+            {state.requests.filter((r) => requestFilter === "all" || r.status === requestFilter).length === 0 && <EmptyState text="No recharge requests yet." />}
+            {state.requests.filter((r) => requestFilter === "all" || r.status === requestFilter).map((request) => (
+              <div className="request-card" key={request.id}>
+                <Avatar label={playerMap.get(request.playerId)?.name ?? "?"} />
+                <div>
+                  <strong>{playerMap.get(request.playerId)?.name}</strong>
+                  <span>{request.reason}</span>
+                  <small>{new Date(request.createdAt).toLocaleDateString("en-IN")}</small>
+                </div>
+                <b className="credit">{money(request.amount)}</b>
+                {request.status === "pending" ? (
+                  <div className="request-actions">
+                    <button onClick={() => updateRequest(request.id, "approved")}>Approve</button>
+                    <button onClick={() => updateRequest(request.id, "rejected")}>Reject</button>
+                  </div>
+                ) : (
+                  <em>{request.status}</em>
+                )}
+              </div>
+            ))}
+          </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {screen === "adjustments" && (
+        <FormScreen title="Add Credit / Debit" back={() => setScreen("dashboard")}>
+          {!isAdmin && <EmptyState text="Only admin can add manual credit or debit." />}
+          {isAdmin && (
+            <>
+          <div className="segmented strong">
+            <button className={adjustDraft.kind === "credit" ? "active" : ""} onClick={() => setAdjustDraft((current) => ({ ...current, kind: "credit" }))}>
+              Add Credit
+            </button>
+            <button className={adjustDraft.kind === "debit" ? "active danger" : ""} onClick={() => setAdjustDraft((current) => ({ ...current, kind: "debit" }))}>
+              Add Debit
+            </button>
+          </div>
+          <Field label="Select Player">
+            <select value={adjustDraft.playerId} onChange={(event) => setAdjustDraft((current) => ({ ...current, playerId: event.target.value }))}>
+              <option value="">Select player</option>
+              {state.players.map((player) => (
+                <option key={player.id} value={player.id}>
+                  {player.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Amount">
+            <input type="number" value={adjustDraft.amount} onChange={(event) => setAdjustDraft((current) => ({ ...current, amount: event.target.value }))} />
+          </Field>
+          <Field label="Reason">
+            <input value={adjustDraft.reason} onChange={(event) => setAdjustDraft((current) => ({ ...current, reason: event.target.value }))} />
+          </Field>
+          <button className={`primary ${adjustDraft.kind === "debit" ? "danger" : "success"}`} onClick={applyAdjustment}>
+            {adjustDraft.kind === "credit" ? "Add Credit" : "Add Debit"}
+          </button>
+            </>
+          )}
+        </FormScreen>
+      )}
+
+      {screen === "reports" && (
+        <section className="screen">
+          <SubNav title="More" back={() => setScreen("dashboard")} />
+          <div className="report-layout">
+            <div className="donut">
+              <div />
+            </div>
+            <div className="legend">
+              {expenseTypes.map((type) => {
+                const total = state.expenses.filter((expense) => expense.type === type.id).reduce((sum, expense) => sum + expenseTotal(expense), 0)
+                return total ? <span key={type.id}>{type.label}: {money(total)}</span> : null
+              })}
+            </div>
+          </div>
+          <div className="summary-card">
+            <Row label="Login" value={isAdmin ? "Admin" : `User - ${playerMap.get(selectedUserId)?.name ?? "Player"}`} />
+            <Row label="Total Credits" value={money(totals.credits)} />
+            <Row label="Total Debts" value={money(totals.debts)} />
+            <Row label="Net Balance" value={money(totals.credits - totals.debts)} />
+            <Row label="Total Expenses" value={money(totals.expenses)} />
+            <Row label="Sync" value={cloudStatus} />
+          </div>
+          <SectionHeader title="Transaction Activity" />
+          <div className="list">
+            {recentEntries.length === 0 && <EmptyState text="Create the first expense to calculate balances." />}
+            {recentEntries.map((entry) => (
+              <div className="activity-row" key={entry.id}>
+                <Avatar label={entry.title} />
+                <div>
+                  <strong>{entry.title}</strong>
+                  <span>{entry.meta}</span>
+                </div>
+                <b className={entry.amount >= 0 ? "credit" : "debit"}>{entry.type === "expense" ? money(entry.amount) : signedMoney(entry.amount)}</b>
+              </div>
+            ))}
+          </div>
+          <button className="secondary" onClick={clearData}>
+            Reset Demo Data
+          </button>
+          <button className="secondary logout" onClick={() => setRole(null)}>
+            Logout
+          </button>
+        </section>
+      )}
+
+      <nav className="bottom-nav">
+        <button className={screen === "dashboard" ? "active" : ""} onClick={() => setScreen("dashboard")}>Home</button>
+        <button className={screen === "players" ? "active" : ""} onClick={() => setScreen("players")}>Players</button>
+        <button className="fab" onClick={() => isAdmin ? resetDraft() : setScreen("credit-request")}>{isAdmin ? "+" : "↻"}</button>
+        <button className={screen === "expenses" ? "active" : ""} onClick={() => setScreen("expenses")}>Expenses</button>
+        <button className={screen === "reports" ? "active" : ""} onClick={() => setScreen("reports")}>More</button>
       </nav>
-
-      {/* Modals */}
-      {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} onLogin={() => {
-        setIsAdmin(true)
-        sessionStorage.setItem("admin", "true")
-        setShowLoginModal(false)
-      }} />}
-
-      {showAddPlayerModal && <AddPlayerModal 
-        onClose={() => { setShowAddPlayerModal(false); setNewPlayerName("") }}
-        value={newPlayerName}
-        onChange={setNewPlayerName}
-        onSubmit={addPlayer}
-      />}
-
-      {showCreditModal && selectedPlayer && <CreditModal
-        player={selectedPlayer}
-        onClose={() => { setShowCreditModal(false); setCreditAmount(""); setSelectedPlayer(null) }}
-        value={creditAmount}
-        onChange={setCreditAmount}
-        onSubmit={addCredit}
-      />}
-
-      {showDebitModal && selectedPlayer && <DebitModal
-        player={selectedPlayer}
-        onClose={() => { setShowDebitModal(false); setDebitAmount(""); setSelectedPlayer(null) }}
-        value={debitAmount}
-        onChange={setDebitAmount}
-        onSubmit={addDebit}
-      />}
-    </div>
+    </main>
   )
 }
 
-function Modal({ children, onClose }) {
-  return (
-    <div style={s.overlay} onClick={onClose}>
-      <div style={s.modal} onClick={e => e.stopPropagation()}>
-        {children}
-      </div>
-    </div>
-  )
-}
-
-function LoginModal({ onClose, onLogin }) {
-  const [password, setPassword] = useState("")
-  const [error, setError] = useState(false)
-
-  const handleLogin = () => {
-    if (password === ADMIN_PASSWORD) {
-      onLogin()
-    } else {
-      setError(true)
-    }
-  }
+function ExpenseCard({
+  expense,
+  playerMap,
+  expanded,
+  onToggle,
+}: {
+  expense: Expense
+  playerMap: Map<string, Player>
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const contributors = expense.participantIds.map((playerId) => ({
+    id: playerId,
+    name: playerMap.get(playerId)?.name ?? "Player",
+    weight: expense.splitWeights?.[playerId] ?? 1,
+    amount: playerShare(expense, playerId),
+  }))
+  const tagged = taggedCredits(expense)
 
   return (
-    <div style={s.overlay} onClick={onClose}>
-      <div style={s.modal} onClick={e => e.stopPropagation()}>
-        <div style={s.modalTitle}>Admin Login</div>
-        <input
-          type="password"
-          value={password}
-          onChange={e => { setPassword(e.target.value); setError(false) }}
-          placeholder="Enter password"
-          style={s.modalInput}
-          autoFocus
-          onKeyPress={e => e.key === "Enter" && handleLogin()}
-        />
-        {error && <div style={{ color: "#FF6B6B", fontSize: 12, marginBottom: 12 }}>Wrong password</div>}
-        <button style={s.modalBtn} onClick={handleLogin}>Login</button>
-      </div>
-    </div>
-  )
-}
-
-function AddPlayerModal({ onClose, value, onChange, onSubmit }) {
-  const handleSubmit = () => {
-    if (value.trim()) {
-      onSubmit()
-    } else {
-      alert("Please enter a name")
-    }
-  }
-
-  return (
-    <div style={s.overlay} onClick={onClose}>
-      <div style={s.modal} onClick={e => e.stopPropagation()}>
-        <div style={s.modalTitle}>Add New Player</div>
-        <input
-          type="text"
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder="Player name"
-          style={s.modalInput}
-          autoFocus
-          onKeyPress={e => e.key === "Enter" && handleSubmit()}
-        />
-        <div style={{ display: "flex", gap: 8 }}>
-          <button style={{ ...s.modalBtn, background: "#374151", flex: 1 }} onClick={onClose}>Cancel</button>
-          <button style={{ ...s.modalBtn, flex: 1 }} onClick={handleSubmit}>Add Player</button>
+    <article className="expense-card">
+      <button className="expense-card-head" onClick={onToggle}>
+        <div>
+          <h2>{expense.name}</h2>
+          <time>{formatDate(expense.date)}</time>
         </div>
-      </div>
-    </div>
+        <div className="expense-head-meta">
+          <strong>{money(expenseTotal(expense))}</strong>
+          <span>
+            <b>👥 {expense.participantIds.length}</b>
+            {tagged.length > 0 && <b>₹ {tagged.length}</b>}
+          </span>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="expense-details">
+          <button className="details-toggle" onClick={onToggle}>
+            ▼ Details
+          </button>
+          <h3>Contributors</h3>
+          <div className="contributor-grid">
+            {contributors.map((contributor) => (
+              <div className="contributor-tile" key={contributor.id}>
+                <p>
+                  {contributor.name} <span>• {contributor.weight}x •</span>
+                </p>
+                <strong>{money(contributor.amount)}</strong>
+              </div>
+            ))}
+          </div>
+
+          {tagged.length > 0 && (
+            <>
+              <h3>Tagged Credits</h3>
+              <div className="vehicle-grid">
+                {tagged.map((payment) => (
+                  <div className="vehicle-tile" key={payment.id}>
+                    {creditTagIcon(payment.label)} {playerMap.get(payment.playerId)?.name ?? "Player"} <span>• {payment.label} • {money(payment.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </article>
   )
 }
 
-function CreditModal({ player, onClose, value, onChange, onSubmit }) {
-  const handleSubmit = () => {
-    const amt = Number(value)
-    if (amt && amt > 0) {
-      onSubmit()
-    } else {
-      alert("Please enter a valid amount")
-    }
-  }
+function PlayerProfile({
+  playerId,
+  state,
+  balances,
+  setScreen,
+  onDelete,
+  isAdmin,
+}: {
+  playerId: string
+  state: AppState
+  balances: Map<string, number>
+  setScreen: (screen: Screen) => void
+  onDelete: (playerId: string) => void
+  isAdmin: boolean
+}) {
+  const player = state.players.find((item) => item.id === playerId)
+  if (!player) return null
+  const balance = balances.get(playerId) ?? 0
+  const expenseRows = state.expenses
+    .filter((expense) => expense.participantIds.includes(playerId) || expense.payments.some((payment) => payment.playerId === playerId))
+    .map((expense) => {
+      const paid = expense.payments.filter((payment) => payment.playerId === playerId).reduce((sum, payment) => sum + payment.amount, 0)
+      const share = playerShare(expense, playerId)
+      const playerPayments = expense.payments.filter((p) => p.playerId === playerId)
+      const paymentLabel = playerPayments.length > 0 ? playerPayments.map((p) => p.label).join(", ") : "Match Fee Share"
+      const net = paid - share
+      return {
+        id: expense.id,
+        title: expense.name,
+        meta: net >= 0 ? `Credit Added\n${paymentLabel}` : `Debt Added\n${paymentLabel}`,
+        amount: net,
+        date: expense.date,
+        createdAt: expense.createdAt,
+      }
+    })
+  const adjustmentRows = state.adjustments
+    .filter((adjustment) => adjustment.playerId === playerId)
+    .map((adjustment) => ({
+      id: adjustment.id,
+      title: adjustment.reason,
+      meta: adjustment.kind === "credit" ? "Credit Added" : "Debit Added",
+      amount: adjustment.kind === "credit" ? adjustment.amount : -adjustment.amount,
+      date: new Date(adjustment.createdAt).toISOString().slice(0, 10),
+      createdAt: adjustment.createdAt,
+    }))
+  const rows = [...expenseRows, ...adjustmentRows].sort((a, b) => b.createdAt - a.createdAt)
 
   return (
-    <div style={s.overlay} onClick={onClose}>
-      <div style={s.modal} onClick={e => e.stopPropagation()}>
-        <div style={s.modalTitle}>Add Credit to {player.name}</div>
-        <input
-          type="number"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder="Amount (₹)"
-          style={s.modalInput}
-          autoFocus
-          onKeyPress={e => e.key === "Enter" && handleSubmit()}
-        />
-        <div style={{ display: "flex", gap: 8 }}>
-          <button style={{ ...s.modalBtn, background: "#374151", flex: 1 }} onClick={onClose}>Cancel</button>
-          <button style={{ ...s.modalBtn, background: "#4ECDC4", flex: 1 }} onClick={handleSubmit}>Add Credit</button>
+    <section className="screen">
+      <SubNav title={`${player.name}'s Profile`} back={() => setScreen("players")} right={isAdmin ? <button className="subnav-action danger-text" onClick={() => onDelete(player.id)}>Delete</button> : undefined} />
+      <div className="profile-head">
+        <Avatar label={player.name} large />
+        <div>
+          <h1>{player.name}</h1>
+          <span className={balance >= 0 ? "credit" : "debit"}>{balance > 0 ? "Creditor" : balance < 0 ? "Debtor" : "Balanced"}</span>
         </div>
+        <b className={balance >= 0 ? "credit" : "debit"}>{signedMoney(balance)}</b>
       </div>
-    </div>
+      <div className="summary-card">
+        <Row label="Total Credits" value={money(rows.filter((r) => r.amount > 0).reduce((s, r) => s + r.amount, 0))} />
+        <Row label="Total Debts" value={money(rows.filter((r) => r.amount < 0).reduce((s, r) => s + Math.abs(r.amount), 0))} />
+        <Row label="Net Balance" value={signedMoney(balance)} />
+      </div>
+      <SectionHeader title="Recent Transactions" />
+      <div className="list">
+        {rows.length === 0 && <EmptyState text="No transactions for this player yet." />}
+        {rows.map((row) => (
+          <div className="activity-row" key={row.id}>
+            <Avatar label={row.title} />
+            <div>
+              <strong>{row.title}</strong>
+              <small style={{ display: "block", color: "#66778b", fontSize: 10 }}>{formatDate(row.date)}</small>
+              {row.meta.split("\n").map((line, i) => (
+                <span key={i} style={{ display: "block" }}>{line}</span>
+              ))}
+            </div>
+            <b className={row.amount >= 0 ? "credit" : "debit"}>{signedMoney(row.amount)}</b>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 
-function DebitModal({ player, onClose, value, onChange, onSubmit }) {
-  const handleSubmit = () => {
-    const amt = Number(value)
-    if (amt && amt > 0) {
-      onSubmit()
-    } else {
-      alert("Please enter a valid amount")
-    }
-  }
-
+function FormScreen({ title, back, children }: { title: string; back: () => void; children: ReactNode }) {
   return (
-    <div style={s.overlay} onClick={onClose}>
-      <div style={s.modal} onClick={e => e.stopPropagation()}>
-        <div style={s.modalTitle}>Deduct from {player.name}</div>
-        <input
-          type="number"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder="Amount (₹)"
-          style={s.modalInput}
-          autoFocus
-          onKeyPress={e => e.key === "Enter" && handleSubmit()}
-        />
-        <div style={{ display: "flex", gap: 8 }}>
-          <button style={{ ...s.modalBtn, background: "#374151", flex: 1 }} onClick={onClose}>Cancel</button>
-          <button style={{ ...s.modalBtn, background: "#FF6B6B", flex: 1 }} onClick={handleSubmit}>Deduct</button>
-        </div>
-      </div>
+    <section className="screen form-screen">
+      <SubNav title={title} back={back} />
+      {children}
+    </section>
+  )
+}
+
+function SubNav({ title, back, right }: { title: string; back: () => void; right?: ReactNode }) {
+  return (
+    <div className="subnav">
+      <button onClick={back} aria-label="Go back">
+        ‹
+      </button>
+      <h1>{title}</h1>
+      {right && <div className="subnav-right">{right}</div>}
     </div>
   )
 }
 
-const s = {
-  root: { minHeight: "100vh", background: "#0A1F1A", color: "#fff", fontFamily: "system-ui, sans-serif", paddingBottom: 80 },
-  header: { display: "flex", alignItems: "center", gap: 12, padding: 16, background: "#0F2922", borderBottom: "1px solid #1F4A3C" },
-  logo: { width: 40, height: 40, borderRadius: 8 },
-  headerText: { flex: 1 },
-  title: { fontSize: 16, fontWeight: 900, letterSpacing: 1 },
-  subtitle: { fontSize: 11, color: "#9CA3AF" },
-  notif: { background: "none", border: "none", fontSize: 24, cursor: "pointer", position: "relative" },
-  badge: { position: "absolute", top: -4, right: -4, background: "#FF6B6B", borderRadius: 10, padding: "2px 6px", fontSize: 10, fontWeight: 700 },
-  
-  main: { padding: 16 },
-  page: { animation: "fadeIn 0.3s ease" },
-  
-  balanceCard: { background: "linear-gradient(135deg, #1F4A3C 0%, #0F2922 100%)", borderRadius: 16, padding: 24, marginBottom: 16 },
-  balanceLabel: { fontSize: 11, color: "#A8D5A2", fontWeight: 700, marginBottom: 8 },
-  balanceAmount: { fontSize: 40, fontWeight: 900, marginBottom: 8 },
-  balanceGrowth: { fontSize: 13, color: "#A8D5A2" },
-  
-  statsRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 },
-  statCard: { borderRadius: 12, padding: 16 },
-  statRed: { background: "#2D1F1F" },
-  statBlue: { background: "#1F2937" },
-  statLabel: { fontSize: 10, fontWeight: 700, marginBottom: 8 },
-  statValue: { fontSize: 28, fontWeight: 900, marginBottom: 4 },
-  statSub: { fontSize: 11, opacity: 0.7 },
-  
-  actions: { marginBottom: 16 },
-  sectionTitle: { fontSize: 11, fontWeight: 700, color: "#9CA3AF", marginBottom: 12 },
-  actionsGrid: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 },
-  actionBtn: { background: "#1F2937", border: "1px solid #374151", borderRadius: 12, padding: "16px 8px", cursor: "pointer", textAlign: "center" },
-  actionIcon: { fontSize: 28, marginBottom: 8 },
-  actionLabel: { fontSize: 11, color: "#E5E7EB" },
-  
-  alert: { background: "#2D1F1F", borderLeft: "4px solid #FF6B6B", borderRadius: 8, padding: 12, display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, fontSize: 13 },
-  alertBtn: { background: "#FF6B6B", color: "#fff", border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 11, fontWeight: 700, cursor: "pointer" },
-  
-  activity: { marginBottom: 16 },
-  activityItem: { background: "#1F2937", borderRadius: 12, padding: 12, display: "flex", alignItems: "center", gap: 12, marginBottom: 8 },
-  activityAvatar: { width: 40, height: 40, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 16 },
-  activityInfo: { flex: 1 },
-  activityName: { fontSize: 14, fontWeight: 600 },
-  activityDate: { fontSize: 11, color: "#9CA3AF" },
-  activityAmount: { fontSize: 16, fontWeight: 700 },
-  
-  pageHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 },
-  backBtn: { width: 40, height: 40, background: "#1F2937", border: "none", borderRadius: 8, color: "#fff", fontSize: 20, cursor: "pointer" },
-  pageTitle: { flex: 1, textAlign: "center", fontSize: 20, fontWeight: 900 },
-  addBtn: { width: 40, height: 40, background: "#4ECDC4", border: "none", borderRadius: 8, color: "#fff", fontSize: 24, cursor: "pointer" },
-  
-  filters: { display: "flex", gap: 8, marginBottom: 16 },
-  filterBtn: { flex: 1, background: "#1F2937", border: "1px solid #374151", borderRadius: 8, padding: 10, color: "#9CA3AF", fontSize: 13, fontWeight: 600, cursor: "pointer" },
-  filterActive: { background: "#4ECDC433", borderColor: "#4ECDC4", color: "#4ECDC4" },
-  
-  playersList: {},
-  playerCard: { background: "#1F2937", borderRadius: 12, padding: 16, display: "flex", alignItems: "center", gap: 12, marginBottom: 12 },
-  playerAvatar: { width: 48, height: 48, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 18, flexShrink: 0 },
-  playerInfo: { flex: 1 },
-  playerName: { fontSize: 16, fontWeight: 600 },
-  playerStatus: { fontSize: 11, color: "#9CA3AF" },
-  playerBalance: { fontSize: 18, fontWeight: 900, marginRight: 8 },
-  playerActions: { display: "flex", gap: 8 },
-  creditBtn: { width: 36, height: 36, background: "#4ECDC433", border: "1px solid #4ECDC4", borderRadius: 8, color: "#4ECDC4", fontSize: 20, cursor: "pointer" },
-  debitBtn: { width: 36, height: 36, background: "#FF6B6B33", border: "1px solid #FF6B6B", borderRadius: 8, color: "#FF6B6B", fontSize: 20, cursor: "pointer" },
-  
-  locked: { textAlign: "center", padding: 60, color: "#9CA3AF" },
-  lockIcon: { fontSize: 48, marginBottom: 16 },
-  lockText: { fontSize: 14, marginBottom: 16 },
-  loginBtn: { background: "#4ECDC4", color: "#fff", border: "none", borderRadius: 8, padding: "12px 24px", fontSize: 14, fontWeight: 700, cursor: "pointer" },
-  
-  form: {},
-  input: { width: "100%", background: "#1F2937", border: "1px solid #374151", color: "#fff", borderRadius: 8, padding: 14, fontSize: 14, marginBottom: 12, boxSizing: "border-box" },
-  formLabel: { fontSize: 12, fontWeight: 700, color: "#9CA3AF", marginTop: 20, marginBottom: 12 },
-  categoryGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 },
-  categoryBtn: { background: "#1F2937", border: "2px solid #374151", borderRadius: 12, padding: 16, cursor: "pointer", textAlign: "center" },
-  
-  contributor: { marginBottom: 12 },
-  contributorBtn: { width: "100%", background: "#1F2937", border: "1px solid #374151", borderRadius: 8, padding: 12, color: "#fff", fontSize: 14, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" },
-  contributorActive: { background: "#4ECDC433", borderColor: "#4ECDC4" },
-  weightSelect: { background: "#0F2922", color: "#fff", border: "1px solid #374151", borderRadius: 6, padding: "6px 12px", fontSize: 13 },
-  vehicleRow: { display: "flex", gap: 8, marginTop: 8, paddingLeft: 12 },
-  vehicleBtn: { flex: 1, background: "#1F2937", border: "1px solid #374151", borderRadius: 8, padding: 8, fontSize: 12, cursor: "pointer", color: "#9CA3AF" },
-  vehicleActive: { background: "#FFD93D33", borderColor: "#FFD93D", color: "#FFD93D" },
-  vehicleInput: { width: 100, background: "#1F2937", border: "1px solid #374151", borderRadius: 8, padding: 8, color: "#fff", fontSize: 13 },
-  
-  createBtn: { width: "100%", background: "#4ECDC4", color: "#fff", border: "none", borderRadius: 8, padding: 16, fontSize: 16, fontWeight: 700, cursor: "pointer", marginTop: 20 },
-  
-  categoryTotals: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 },
-  categoryTotal: { background: "#1F2937", borderRadius: 12, padding: 16, display: "flex", alignItems: "center", gap: 12 },
-  categoryTotalLabel: { fontSize: 11, color: "#9CA3AF", marginBottom: 4 },
-  categoryTotalValue: { fontSize: 16, fontWeight: 700 },
-  
-  expenseCard: { background: "#1F2937", borderRadius: 12, padding: 16, marginBottom: 12 },
-  expenseHeader: { display: "flex", justifyContent: "space-between", marginBottom: 12 },
-  expenseTitle: { fontSize: 16, fontWeight: 600, marginBottom: 4 },
-  expenseDate: { fontSize: 11, color: "#9CA3AF" },
-  expenseAmount: { fontSize: 20, fontWeight: 900, color: "#4ECDC4" },
-  expenseToggle: { background: "none", border: "none", color: "#4ECDC4", fontSize: 13, fontWeight: 600, cursor: "pointer", padding: "8px 0", width: "100%" },
-  expenseDetails: { marginTop: 12, paddingTop: 12, borderTop: "1px solid #374151" },
-  expensePlayer: { display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 13 },
-  vehicleTag: { fontSize: 11, color: "#FFD93D", marginTop: 4 },
-  
-  requestForm: { background: "#1F2937", borderRadius: 12, padding: 16, marginBottom: 20 },
-  submitBtn: { width: "100%", background: "#4ECDC4", color: "#fff", border: "none", borderRadius: 8, padding: 14, fontSize: 14, fontWeight: 700, cursor: "pointer" },
-  requestCard: { background: "#1F2937", borderRadius: 12, padding: 16, marginBottom: 12, display: "flex", gap: 12 },
-  requestInfo: { flex: 1 },
-  requestPlayer: { fontSize: 14, fontWeight: 600, marginBottom: 4 },
-  requestAmount: { fontSize: 18, fontWeight: 900, color: "#4ECDC4", marginBottom: 4 },
-  requestNote: { fontSize: 12, color: "#9CA3AF", marginBottom: 8 },
-  requestStatus: { fontSize: 11, fontWeight: 600 },
-  requestActions: { display: "flex", flexDirection: "column", gap: 8 },
-  approveBtn: { width: 40, height: 40, background: "#4ECDC4", border: "none", borderRadius: 8, color: "#fff", fontSize: 20, cursor: "pointer" },
-  rejectBtn: { width: 40, height: 40, background: "#FF6B6B", border: "none", borderRadius: 8, color: "#fff", fontSize: 20, cursor: "pointer" },
-  
-  nav: { position: "fixed", bottom: 0, left: 0, right: 0, background: "#0F2922", borderTop: "1px solid #1F4A3C", display: "flex", justifyContent: "space-around", padding: "12px 0 20px" },
-  navBtn: { background: "none", border: "none", cursor: "pointer", textAlign: "center" },
-  navLabel: { fontSize: 11, marginTop: 4 },
-  fab: { width: 56, height: 56, background: "linear-gradient(135deg, #4ECDC4 0%, #44B3A9 100%)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, color: "#fff", boxShadow: "0 4px 12px rgba(78,205,196,0.4)" },
-  navBadge: { position: "absolute", top: -4, right: -4, background: "#FF6B6B", borderRadius: 10, padding: "2px 6px", fontSize: 9, fontWeight: 700 },
-  
-  overlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 },
-  modal: { background: "#1F2937", borderRadius: 16, padding: 24, width: "100%", maxWidth: 360, border: "1px solid #374151" },
-  modalTitle: { fontSize: 18, fontWeight: 700, marginBottom: 16, textAlign: "center" },
-  modalInput: { 
-    width: "100%", 
-    background: "#0F2922", 
-    border: "2px solid #4ECDC4", 
-    color: "#fff", 
-    borderRadius: 8, 
-    padding: "16px", 
-    fontSize: 16, 
-    marginBottom: 16, 
-    boxSizing: "border-box",
-    WebkitAppearance: "none",
-    appearance: "none"
-  },
-  modalBtn: { width: "100%", background: "#4ECDC4", color: "#fff", border: "none", borderRadius: 8, padding: 16, fontSize: 16, fontWeight: 700, cursor: "pointer" },
+function TypePicker({ value, onChange }: { value: ExpenseType; onChange: (value: ExpenseType) => void }) {
+  return (
+    <div className="type-picker">
+      {expenseTypes.map((type) => (
+        <button className={value === type.id ? "active" : ""} key={type.id} onClick={() => onChange(type.id)}>
+          <b>{type.icon}</b>
+          <span>{type.label}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      {children}
+    </label>
+  )
+}
+
+function Avatar({ label, large = false }: { label: string; large?: boolean }) {
+  return <div className={large ? "avatar large" : "avatar"}>{initials(label)}</div>
+}
+
+function Metric({ label, value, tone, detail }: { label: string; value: string; tone: "credit" | "debit" | "warn"; detail?: string }) {
+  return (
+    <div className={`metric ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {detail && <small>{detail}</small>}
+    </div>
+  )
+}
+
+function QuickAction({ label, icon, onClick }: { label: string; icon: string; onClick: () => void }) {
+  return (
+    <button className="quick-action" onClick={onClick}>
+      <b>{icon}</b>
+      <span>{label}</span>
+    </button>
+  )
+}
+
+function SectionHeader({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) {
+  return (
+    <div className="section-header">
+      <h2>{title}</h2>
+      {action && <button onClick={onAction}>{action}</button>}
+    </div>
+  )
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <div className="empty-state">{text}</div>
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="summary-row">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
 }
