@@ -100,11 +100,9 @@ const expenseTypes: { id: ExpenseType; label: string; icon: string }[] = [
 
 const LOGO_URL = "https://i.ibb.co/xKHvpNq7/039925f4-eab6-45a2-b640-f8bad2975157.png"
 const paymentCategories = [
-  { label: "Food", type: "food" },
   { label: "Match Fee", type: "match" },
+  { label: "Food", type: "food" },
   { label: "Vehicle", type: "vehicle" },
-  { label: "Utilities", type: "utilities" },
-  { label: "Other", type: "other" },
 ] as const
 
 const seedPlayers = [
@@ -124,7 +122,7 @@ const seedPlayers = [
   "Digvijay",
 ]
 
-const APP_VERSION = 2
+const APP_VERSION = 3
 
 const newId = () => crypto.randomUUID()
 const money = (value: number) => `₹${Math.round(Math.abs(value)).toLocaleString("en-IN")}`
@@ -154,28 +152,9 @@ function cleanState(rawState: AppState): AppState {
 
 const defaultState = (): AppState => {
   const players = initialPlayers()
-  const find = (name: string) => players.find((player) => player.name === name)?.id
-  const participantIds = ["Pranab", "Nikhil K", "Abhinav", "Vinil", "Praphul", "Firdaus", "Vipin", "Vishnu"]
-    .map((name) => find(name))
-    .filter((id): id is string => Boolean(id))
-  const splitWeights = Object.fromEntries(participantIds.map((playerId, index) => [playerId, index === 0 ? 4 : 1]))
   return {
     players,
-    expenses: [
-      {
-        id: newId(),
-        name: "Sunglow Ground",
-        type: "match",
-        date: "2026-02-05",
-        payments: [
-          { id: newId(), playerId: find("Soum") ?? players[0].id, amount: 1850, label: "Match Fee" },
-          { id: newId(), playerId: find("Mohit") ?? players[0].id, amount: 800, label: "Vehicle" },
-        ],
-        participantIds,
-        splitWeights,
-        createdAt: Date.now() - 86400000,
-      },
-    ],
+    expenses: [],
     adjustments: [],
     requests: [],
   }
@@ -205,18 +184,12 @@ function saveLocalState(state: AppState) {
 
 const bootState = loadLocalState()
 
-function starterDraft(players: Player[]): DraftExpense {
-  const mohit = players.find((player) => player.name === "Mohit")?.id ?? players[0]?.id ?? ""
-  const soum = players.find((player) => player.name === "Soum")?.id ?? players[1]?.id ?? mohit
-
+function emptyDraft(players: Player[]): DraftExpense {
   return {
-    name: "Sunflow Ground Match",
+    name: "",
     type: "match",
-    date: "2024-05-17",
-    payments: [
-      { id: newId(), playerId: mohit, amount: 400, label: "Vehicle (Car)" },
-      { id: newId(), playerId: soum, amount: 5000, label: "Ground Fee" },
-    ],
+    date: new Date().toISOString().slice(0, 10),
+    payments: [{ id: newId(), playerId: players[0]?.id ?? "", amount: 0, label: "Match Fee" }],
     participantIds: players.map((player) => player.id),
     splitWeights: Object.fromEntries(players.map((player) => [player.id, 1])),
   }
@@ -241,13 +214,13 @@ function playerShare(expense: Pick<Expense, "payments" | "participantIds" | "spl
 }
 
 function taggedCredits(expense: Pick<Expense, "payments">) {
-  return expense.payments.filter((payment) => /vehicle|car|bike|fuel|transport|food|meal|snack|utilities|utility|light|water|other/i.test(payment.label))
+  return expense.payments.filter((payment) => /vehicle|car|bike|fuel|transport|food|meal|snack|match fee|ground/i.test(payment.label))
 }
 
 function creditTagIcon(label: string) {
   if (/vehicle|car|bike|fuel|transport/i.test(label)) return "🚗"
   if (/food|meal|snack/i.test(label)) return "🍽"
-  if (/utilities|utility|light|water/i.test(label)) return "⚡"
+  if (/match fee|ground/i.test(label)) return "🏏"
   return "₹"
 }
 
@@ -269,7 +242,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("dashboard")
   const [role, setRole] = useState<Role | null>(() => (localStorage.getItem("ra-role") as Role | null) ?? null)
   const [selectedUserId, setSelectedUserId] = useState(() => localStorage.getItem("ra-user-id") ?? bootState.players[0]?.id ?? "")
-  const [draft, setDraft] = useState<DraftExpense>(() => starterDraft(bootState.players))
+  const [draft, setDraft] = useState<DraftExpense>(() => emptyDraft(bootState.players))
   const [lastExpenseId, setLastExpenseId] = useState<string | null>(null)
   const [cloudStatus, setCloudStatus] = useState(hasSupabaseConfig ? "Connecting" : "Local only")
   const [search, setSearch] = useState("")
@@ -281,6 +254,7 @@ export default function App() {
   const [playerFilter, setPlayerFilter] = useState<"all" | "creditors" | "debtors">("all")
   const [requestFilter, setRequestFilter] = useState<RequestStatus | "all">("pending")
   const [newPlayer, setNewPlayer] = useState({ name: "", phone: "" })
+  const [paymentTab, setPaymentTab] = useState<"match" | "vehicle" | "food">("match")
   const [adminPassword, setAdminPassword] = useState("")
   const [loginError, setLoginError] = useState("")
   const isAdmin = role === "admin"
@@ -290,15 +264,16 @@ export default function App() {
     let active = true
     async function loadCloudState() {
       if (!supabase) return
-      const { data, error } = await supabase.from("app_state").select("data").eq("id", "default").maybeSingle()
+      const { data, error } = await supabase.from("app_state").select("*").eq("id", "default").maybeSingle()
       if (!active) return
       if (error) {
         setCloudStatus("Supabase table missing")
         return
       }
-      if (data?.data) {
-        setState(data.data as AppState)
-        setDraft(starterDraft((data.data as AppState).players))
+      const cloudVersion = (data as Record<string, unknown>)?.version as number | undefined
+      if (data?.data && cloudVersion && cloudVersion >= APP_VERSION) {
+        setState(cleanState(data.data as AppState))
+        setDraft(emptyDraft((data.data as AppState).players))
       }
       setCloudStatus("Supabase synced")
     }
@@ -313,7 +288,7 @@ export default function App() {
     if (!supabase) return
     const client = supabase
     const handle = window.setTimeout(async () => {
-      const { error } = await client.from("app_state").upsert({ id: "default", data: state, updated_at: new Date().toISOString() })
+      const { error } = await client.from("app_state").upsert({ id: "default", data: state, version: APP_VERSION, updated_at: new Date().toISOString() })
       setCloudStatus(error ? "Supabase save failed" : "Supabase synced")
     }, 450)
     return () => window.clearTimeout(handle)
@@ -454,7 +429,7 @@ export default function App() {
 
   function resetDraft() {
     if (!isAdmin) return
-    setDraft(starterDraft(state.players))
+    setDraft(emptyDraft(state.players))
     setScreen("expense-basic")
   }
 
@@ -508,7 +483,7 @@ export default function App() {
     if (!confirm("Reset all players, expenses, requests, credits, and debits?")) return
     const fresh = defaultState()
     setState(fresh)
-    setDraft(starterDraft(fresh.players))
+    setDraft(emptyDraft(fresh.players))
   }
 
   function updateDraftWeight(playerId: string, value: number) {
@@ -659,9 +634,6 @@ export default function App() {
           <Field label="Date">
             <input type="date" value={draft.date} onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))} />
           </Field>
-          <Field label="Total Amount">
-            <input value={expenseTotal(draft)} readOnly />
-          </Field>
           <button className="primary" onClick={() => setScreen("expense-payments")}>
             Next: Add Payments
           </button>
@@ -672,40 +644,73 @@ export default function App() {
 
       {screen === "expense-payments" && (
         <FormScreen title="Add Payments" back={() => setScreen("expense-basic")}>
+          <div className="segmented">
+            <button className={paymentTab === "match" ? "active" : ""} onClick={() => setPaymentTab("match")}>🏏 Match Fee</button>
+            <button className={paymentTab === "vehicle" ? "active" : ""} onClick={() => setPaymentTab("vehicle")}>🚗 Vehicle</button>
+            <button className={paymentTab === "food" ? "active" : ""} onClick={() => setPaymentTab("food")}>🍔 Food</button>
+          </div>
           <button
             className="primary subtle"
             onClick={() =>
               setDraft((current) => ({
                 ...current,
-                payments: [...current.payments, { id: newId(), playerId: state.players[0]?.id ?? "", amount: 0, label: "Food" }],
+                payments: [...current.payments, {
+                  id: newId(),
+                  playerId: state.players[0]?.id ?? "",
+                  amount: 0,
+                  label: paymentTab === "match" ? "Match Fee" : paymentTab === "vehicle" ? "Vehicle" : "Food",
+                }],
               }))
             }
           >
-            Add Spending / Credit
+            + Add {paymentTab === "match" ? "Match Fee" : paymentTab === "vehicle" ? "Vehicle" : "Food"} Payer
           </button>
           <div className="list">
-            {draft.payments.map((payment) => (
+            {draft.payments
+              .filter((p) => {
+                if (paymentTab === "match") return /match|ground/i.test(p.label)
+                if (paymentTab === "vehicle") return /vehicle|car|bike|fuel|transport/i.test(p.label)
+                if (paymentTab === "food") return /food|meal|snack/i.test(p.label)
+                return true
+              })
+              .map((payment) => (
               <div className="payment-card" key={payment.id}>
-                <select value={payment.playerId} onChange={(event) => updateDraftPayment(payment.id, { playerId: event.target.value })}>
-                  {state.players.map((player) => (
-                    <option key={player.id} value={player.id}>
-                      {player.name}
-                    </option>
-                  ))}
-                </select>
-                <select value={payment.label} onChange={(event) => updateDraftPayment(payment.id, { label: event.target.value })}>
-                  {paymentCategories.map((category) => (
-                    <option key={category.label} value={category.label}>
-                      {category.label}
-                    </option>
-                  ))}
-                </select>
-                <input type="number" value={payment.amount} onChange={(event) => updateDraftPayment(payment.id, { amount: Number(event.target.value) })} />
-                <button className="remove-payment" onClick={() => setDraft((current) => ({ ...current, payments: current.payments.filter((item) => item.id !== payment.id) }))}>
-                  Remove
-                </button>
+                <div className="payment-card-row">
+                  <select value={payment.playerId} onChange={(event) => updateDraftPayment(payment.id, { playerId: event.target.value })}>
+                    {state.players.map((player) => (
+                      <option key={player.id} value={player.id}>
+                        {player.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button className="remove-payment" onClick={() => setDraft((current) => ({ ...current, payments: current.payments.filter((item) => item.id !== payment.id) }))}>
+                    ✕
+                  </button>
+                </div>
+                <Field label="Amount (₹)">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    placeholder="Enter amount"
+                    value={payment.amount || ""}
+                    onChange={(event) => updateDraftPayment(payment.id, { amount: Number(event.target.value) })}
+                  />
+                </Field>
+                <small className="payment-tag-hint">
+                  {/vehicle|car|bike|fuel|transport/i.test(payment.label)
+                    ? "🚗 Will credit as Vehicle expense"
+                    : /food|meal|snack/i.test(payment.label)
+                    ? "🍔 Will credit as Food expense"
+                    : "🏏 Will split as Match Fee"}
+                </small>
               </div>
             ))}
+            {draft.payments.filter((p) => {
+              if (paymentTab === "match") return /match|ground/i.test(p.label)
+              if (paymentTab === "vehicle") return /vehicle|car|bike|fuel|transport/i.test(p.label)
+              if (paymentTab === "food") return /food|meal|snack/i.test(p.label)
+              return true
+            }).length === 0 && <EmptyState text={`No ${paymentTab} payments added yet. Tap the button above.`} />}
           </div>
           <div className="total-row">
             <span>Total Paid</span>
