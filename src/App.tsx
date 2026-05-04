@@ -124,6 +124,8 @@ const seedPlayers = [
   "Digvijay",
 ]
 
+const APP_VERSION = 2
+
 const newId = () => crypto.randomUUID()
 const money = (value: number) => `₹${Math.round(Math.abs(value)).toLocaleString("en-IN")}`
 const signedMoney = (value: number) => `${value >= 0 ? "+" : "-"} ${money(value)}`
@@ -181,6 +183,14 @@ const defaultState = (): AppState => {
 
 function loadLocalState() {
   try {
+    const savedVersion = Number(localStorage.getItem("cricket-expense-version") ?? "0")
+    if (savedVersion < APP_VERSION) {
+      localStorage.removeItem("cricket-expense-state")
+      localStorage.removeItem("ra-role")
+      localStorage.removeItem("ra-user-id")
+      localStorage.setItem("cricket-expense-version", String(APP_VERSION))
+      return defaultState()
+    }
     const raw = localStorage.getItem("cricket-expense-state")
     return raw ? cleanState(JSON.parse(raw) as AppState) : defaultState()
   } catch {
@@ -190,6 +200,7 @@ function loadLocalState() {
 
 function saveLocalState(state: AppState) {
   localStorage.setItem("cricket-expense-state", JSON.stringify(state))
+  localStorage.setItem("cricket-expense-version", String(APP_VERSION))
 }
 
 const bootState = loadLocalState()
@@ -270,6 +281,8 @@ export default function App() {
   const [playerFilter, setPlayerFilter] = useState<"all" | "creditors" | "debtors">("all")
   const [requestFilter, setRequestFilter] = useState<RequestStatus | "all">("pending")
   const [newPlayer, setNewPlayer] = useState({ name: "", phone: "" })
+  const [adminPassword, setAdminPassword] = useState("")
+  const [loginError, setLoginError] = useState("")
   const isAdmin = role === "admin"
   const activeUserId = isAdmin ? requestDraft.playerId : selectedUserId
 
@@ -513,6 +526,16 @@ export default function App() {
 
   const lastExpense = state.expenses.find((expense) => expense.id === lastExpenseId)
 
+  function handleAdminLogin() {
+    if (adminPassword === "rachal123") {
+      setLoginError("")
+      setRole("admin")
+      setScreen("dashboard")
+    } else {
+      setLoginError("Wrong password")
+    }
+  }
+
   if (!role) {
     return (
       <main className="app-shell auth-shell">
@@ -520,9 +543,21 @@ export default function App() {
           <img src={LOGO_URL} alt="RA Challenger logo" />
           <h1>RA Challenger</h1>
           <p>Choose how you want to enter the app.</p>
-          <button className="primary success" onClick={() => { setRole("admin"); setScreen("dashboard") }}>
-            Admin Login
-          </button>
+          <div className="login-card">
+            <Field label="Admin Password">
+              <input
+                type="password"
+                placeholder="Enter admin password"
+                value={adminPassword}
+                onChange={(event) => { setAdminPassword(event.target.value); setLoginError("") }}
+                onKeyDown={(event) => event.key === "Enter" && handleAdminLogin()}
+              />
+            </Field>
+            {loginError && <div className="login-error">{loginError}</div>}
+            <button className="primary success" onClick={handleAdminLogin}>
+              Admin Login
+            </button>
+          </div>
           <div className="login-card">
             <Field label="Player Login">
               <select value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)}>
@@ -532,7 +567,7 @@ export default function App() {
               </select>
             </Field>
             <button className="primary" onClick={() => { setRole("user"); setScreen("dashboard") }}>
-              Continue as User
+              Continue as Player
             </button>
           </div>
         </section>
