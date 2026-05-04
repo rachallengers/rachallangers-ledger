@@ -696,88 +696,34 @@ export default function App() {
       </nav>
 
       {/* Modals */}
-      {showLoginModal && (
-        <Modal onClose={() => setShowLoginModal(false)}>
-          <div style={s.modalTitle}>Admin Login</div>
-          <input
-            type="password"
-            placeholder="Enter password"
-            style={s.modalInput}
-            autoFocus
-            onKeyDown={e => {
-              if (e.key === "Enter" && e.target.value === ADMIN_PASSWORD) {
-                setIsAdmin(true)
-                sessionStorage.setItem("admin", "true")
-                setShowLoginModal(false)
-              } else if (e.key === "Enter") {
-                alert("Wrong password")
-              }
-            }}
-          />
-          <button
-            style={s.modalBtn}
-            onClick={(e) => {
-              const input = e.target.previousSibling
-              if (input.value === ADMIN_PASSWORD) {
-                setIsAdmin(true)
-                sessionStorage.setItem("admin", "true")
-                setShowLoginModal(false)
-              } else {
-                alert("Wrong password")
-              }
-            }}
-          >
-            Login
-          </button>
-        </Modal>
-      )}
+      {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} onLogin={() => {
+        setIsAdmin(true)
+        sessionStorage.setItem("admin", "true")
+        setShowLoginModal(false)
+      }} />}
 
-      {showAddPlayerModal && (
-        <Modal onClose={() => { setShowAddPlayerModal(false); setNewPlayerName("") }}>
-          <div style={s.modalTitle}>Add New Player</div>
-          <input
-            value={newPlayerName}
-            onChange={e => setNewPlayerName(e.target.value)}
-            placeholder="Player name"
-            style={s.modalInput}
-            autoFocus
-            onKeyDown={e => e.key === "Enter" && addPlayer()}
-          />
-          <button style={s.modalBtn} onClick={addPlayer}>Add Player</button>
-        </Modal>
-      )}
+      {showAddPlayerModal && <AddPlayerModal 
+        onClose={() => { setShowAddPlayerModal(false); setNewPlayerName("") }}
+        value={newPlayerName}
+        onChange={setNewPlayerName}
+        onSubmit={addPlayer}
+      />}
 
-      {showCreditModal && selectedPlayer && (
-        <Modal onClose={() => { setShowCreditModal(false); setCreditAmount(""); setSelectedPlayer(null) }}>
-          <div style={s.modalTitle}>Add Credit to {selectedPlayer.name}</div>
-          <input
-            value={creditAmount}
-            onChange={e => setCreditAmount(e.target.value)}
-            placeholder="Amount (₹)"
-            type="number"
-            style={s.modalInput}
-            autoFocus
-            onKeyDown={e => e.key === "Enter" && addCredit()}
-          />
-          <button style={s.modalBtn} onClick={addCredit}>Add Credit</button>
-        </Modal>
-      )}
+      {showCreditModal && selectedPlayer && <CreditModal
+        player={selectedPlayer}
+        onClose={() => { setShowCreditModal(false); setCreditAmount(""); setSelectedPlayer(null) }}
+        value={creditAmount}
+        onChange={setCreditAmount}
+        onSubmit={addCredit}
+      />}
 
-      {showDebitModal && selectedPlayer && (
-        <Modal onClose={() => { setShowDebitModal(false); setDebitAmount(""); setSelectedPlayer(null) }}>
-          <div style={s.modalTitle}>Deduct from {selectedPlayer.name}</div>
-          <input
-            value={debitAmount}
-            onChange={e => setDebitAmount(e.target.value)}
-            placeholder="Amount (₹)"
-            type="number"
-            style={s.modalInput}
-            autoFocus
-            onKeyDown={e => e.key === "Enter" && addDebit()}
-          />
-          <button style={s.modalBtn} onClick={addDebit}>Deduct</button>
-        </Modal>
-      )}
+      {showDebitModal && selectedPlayer && <DebitModal
+        player={selectedPlayer}
+        onClose={() => { setShowDebitModal(false); setDebitAmount(""); setSelectedPlayer(null) }}
+        value={debitAmount}
+        onChange={setDebitAmount}
+        onSubmit={addDebit}
+      />}
     </div>
   )
 }
@@ -787,6 +733,137 @@ function Modal({ children, onClose }) {
     <div style={s.overlay} onClick={onClose}>
       <div style={s.modal} onClick={e => e.stopPropagation()}>
         {children}
+      </div>
+    </div>
+  )
+}
+
+function LoginModal({ onClose, onLogin }) {
+  const [password, setPassword] = useState("")
+  const [error, setError] = useState(false)
+
+  const handleLogin = () => {
+    if (password === ADMIN_PASSWORD) {
+      onLogin()
+    } else {
+      setError(true)
+    }
+  }
+
+  return (
+    <div style={s.overlay} onClick={onClose}>
+      <div style={s.modal} onClick={e => e.stopPropagation()}>
+        <div style={s.modalTitle}>Admin Login</div>
+        <input
+          type="password"
+          value={password}
+          onChange={e => { setPassword(e.target.value); setError(false) }}
+          placeholder="Enter password"
+          style={s.modalInput}
+          autoFocus
+          onKeyPress={e => e.key === "Enter" && handleLogin()}
+        />
+        {error && <div style={{ color: "#FF6B6B", fontSize: 12, marginBottom: 12 }}>Wrong password</div>}
+        <button style={s.modalBtn} onClick={handleLogin}>Login</button>
+      </div>
+    </div>
+  )
+}
+
+function AddPlayerModal({ onClose, value, onChange, onSubmit }) {
+  const handleSubmit = () => {
+    if (value.trim()) {
+      onSubmit()
+    } else {
+      alert("Please enter a name")
+    }
+  }
+
+  return (
+    <div style={s.overlay} onClick={onClose}>
+      <div style={s.modal} onClick={e => e.stopPropagation()}>
+        <div style={s.modalTitle}>Add New Player</div>
+        <input
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="Player name"
+          style={s.modalInput}
+          autoFocus
+          onKeyPress={e => e.key === "Enter" && handleSubmit()}
+        />
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={{ ...s.modalBtn, background: "#374151", flex: 1 }} onClick={onClose}>Cancel</button>
+          <button style={{ ...s.modalBtn, flex: 1 }} onClick={handleSubmit}>Add Player</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CreditModal({ player, onClose, value, onChange, onSubmit }) {
+  const handleSubmit = () => {
+    const amt = Number(value)
+    if (amt && amt > 0) {
+      onSubmit()
+    } else {
+      alert("Please enter a valid amount")
+    }
+  }
+
+  return (
+    <div style={s.overlay} onClick={onClose}>
+      <div style={s.modal} onClick={e => e.stopPropagation()}>
+        <div style={s.modalTitle}>Add Credit to {player.name}</div>
+        <input
+          type="number"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="Amount (₹)"
+          style={s.modalInput}
+          autoFocus
+          onKeyPress={e => e.key === "Enter" && handleSubmit()}
+        />
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={{ ...s.modalBtn, background: "#374151", flex: 1 }} onClick={onClose}>Cancel</button>
+          <button style={{ ...s.modalBtn, background: "#4ECDC4", flex: 1 }} onClick={handleSubmit}>Add Credit</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DebitModal({ player, onClose, value, onChange, onSubmit }) {
+  const handleSubmit = () => {
+    const amt = Number(value)
+    if (amt && amt > 0) {
+      onSubmit()
+    } else {
+      alert("Please enter a valid amount")
+    }
+  }
+
+  return (
+    <div style={s.overlay} onClick={onClose}>
+      <div style={s.modal} onClick={e => e.stopPropagation()}>
+        <div style={s.modalTitle}>Deduct from {player.name}</div>
+        <input
+          type="number"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="Amount (₹)"
+          style={s.modalInput}
+          autoFocus
+          onKeyPress={e => e.key === "Enter" && handleSubmit()}
+        />
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={{ ...s.modalBtn, background: "#374151", flex: 1 }} onClick={onClose}>Cancel</button>
+          <button style={{ ...s.modalBtn, background: "#FF6B6B", flex: 1 }} onClick={handleSubmit}>Deduct</button>
+        </div>
       </div>
     </div>
   )
@@ -912,8 +989,20 @@ const s = {
   navBadge: { position: "absolute", top: -4, right: -4, background: "#FF6B6B", borderRadius: 10, padding: "2px 6px", fontSize: 9, fontWeight: 700 },
   
   overlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 },
-  modal: { background: "#1F2937", borderRadius: 16, padding: 24, width: "100%", maxWidth: 360 },
+  modal: { background: "#1F2937", borderRadius: 16, padding: 24, width: "100%", maxWidth: 360, border: "1px solid #374151" },
   modalTitle: { fontSize: 18, fontWeight: 700, marginBottom: 16, textAlign: "center" },
-  modalInput: { width: "100%", background: "#0F2922", border: "1px solid #374151", color: "#fff", borderRadius: 8, padding: 14, fontSize: 14, marginBottom: 16, boxSizing: "border-box" },
-  modalBtn: { width: "100%", background: "#4ECDC4", color: "#fff", border: "none", borderRadius: 8, padding: 14, fontSize: 14, fontWeight: 700, cursor: "pointer" },
+  modalInput: { 
+    width: "100%", 
+    background: "#0F2922", 
+    border: "2px solid #4ECDC4", 
+    color: "#fff", 
+    borderRadius: 8, 
+    padding: "16px", 
+    fontSize: 16, 
+    marginBottom: 16, 
+    boxSizing: "border-box",
+    WebkitAppearance: "none",
+    appearance: "none"
+  },
+  modalBtn: { width: "100%", background: "#4ECDC4", color: "#fff", border: "none", borderRadius: 8, padding: 16, fontSize: 16, fontWeight: 700, cursor: "pointer" },
 }
