@@ -121,8 +121,7 @@ const seedPlayers = [
   "Navmath",
   "Pritesh",
   "Sachin T",
-  "Digvijay"
-
+  "Digvijay",
 ]
 
 const newId = () => crypto.randomUUID()
@@ -131,9 +130,33 @@ const signedMoney = (value: number) => `${value >= 0 ? "+" : "-"} ${money(value)
 const labelFor = (type: ExpenseType) => expenseTypes.find((item) => item.id === type)?.label ?? "Other"
 const initialPlayers = (): Player[] => seedPlayers.map((name) => ({ id: newId(), name }))
 
+function cleanExpenseForPlayers(expense: Expense, playerIds: Set<string>): Expense {
+  const participantIds = expense.participantIds.filter((playerId) => playerIds.has(playerId))
+  return {
+    ...expense,
+    participantIds,
+    payments: expense.payments.filter((payment) => playerIds.has(payment.playerId)),
+    splitWeights: Object.fromEntries(participantIds.map((playerId) => [playerId, expense.splitWeights?.[playerId] ?? 1])),
+  }
+}
+
+function cleanState(rawState: AppState): AppState {
+  const playerIds = new Set(rawState.players.map((player) => player.id))
+  return {
+    players: rawState.players,
+    expenses: rawState.expenses.map((expense) => cleanExpenseForPlayers(expense, playerIds)).filter((expense) => expense.participantIds.length > 0 || expense.payments.length > 0),
+    adjustments: rawState.adjustments.filter((adjustment) => playerIds.has(adjustment.playerId)),
+    requests: rawState.requests.filter((request) => playerIds.has(request.playerId)),
+  }
+}
+
 const defaultState = (): AppState => {
   const players = initialPlayers()
-  const find = (name: string) => players.find((player) => player.name === name)?.id ?? players[0]?.id ?? ""
+  const find = (name: string) => players.find((player) => player.name === name)?.id
+  const participantIds = ["Pranab", "Nikhil K", "Abhinav", "Vinil", "Praphul", "Firdaus", "Vipin", "Vishnu"]
+    .map((name) => find(name))
+    .filter((id): id is string => Boolean(id))
+  const splitWeights = Object.fromEntries(participantIds.map((playerId, index) => [playerId, index === 0 ? 4 : 1]))
   return {
     players,
     expenses: [
@@ -143,20 +166,11 @@ const defaultState = (): AppState => {
         type: "match",
         date: "2026-02-05",
         payments: [
-          { id: newId(), playerId: find("Soum"), amount: 1850, label: "Ground Fee" },
-          { id: newId(), playerId: find("Mohit"), amount: 800, label: "Vehicle (Car)" },
+          { id: newId(), playerId: find("Soum") ?? players[0].id, amount: 1850, label: "Match Fee" },
+          { id: newId(), playerId: find("Mohit") ?? players[0].id, amount: 800, label: "Vehicle" },
         ],
-        participantIds: [find("Prateek"), find("Aman"), find("Rohit"), find("Nikhil K"), find("Abhinav"), find("Vivek"), find("Kunal"), find("Rahul")],
-        splitWeights: {
-          [find("Prateek")]: 4,
-          [find("Aman")]: 1,
-          [find("Rohit")]: 1,
-          [find("Nikhil K")]: 1,
-          [find("Abhinav")]: 1,
-          [find("Vivek")]: 1,
-          [find("Kunal")]: 1,
-          [find("Rahul")]: 1,
-        },
+        participantIds,
+        splitWeights,
         createdAt: Date.now() - 86400000,
       },
     ],
@@ -168,7 +182,7 @@ const defaultState = (): AppState => {
 function loadLocalState() {
   try {
     const raw = localStorage.getItem("cricket-expense-state")
-    return raw ? (JSON.parse(raw) as AppState) : defaultState()
+    return raw ? cleanState(JSON.parse(raw) as AppState) : defaultState()
   } catch {
     return defaultState()
   }
@@ -302,6 +316,7 @@ export default function App() {
   }, [selectedUserId])
 
   const playerMap = useMemo(() => new Map(state.players.map((player) => [player.id, player])), [state.players])
+  const playerIds = useMemo(() => new Set(state.players.map((player) => player.id)), [state.players])
 
   const balances = useMemo(() => {
     const result = new Map<string, number>()
@@ -309,19 +324,22 @@ export default function App() {
 
     state.expenses.forEach((expense) => {
       expense.participantIds.forEach((playerId) => {
+        if (!playerIds.has(playerId)) return
         result.set(playerId, (result.get(playerId) ?? 0) - playerShare(expense, playerId))
       })
       expense.payments.forEach((payment) => {
+        if (!playerIds.has(payment.playerId)) return
         result.set(payment.playerId, (result.get(payment.playerId) ?? 0) + payment.amount)
       })
     })
 
     state.adjustments.forEach((adjustment) => {
+      if (!playerIds.has(adjustment.playerId)) return
       result.set(adjustment.playerId, (result.get(adjustment.playerId) ?? 0) + (adjustment.kind === "credit" ? adjustment.amount : -adjustment.amount))
     })
 
     return result
-  }, [state])
+  }, [playerIds, state])
 
   const totals = useMemo(() => {
     const values = [...balances.values()]
@@ -392,9 +410,17 @@ export default function App() {
     setState((current) => ({
       ...current,
       players: current.players.filter((item) => item.id !== playerId),
+      expenses: current.expenses
+        .map((expense) => cleanExpenseForPlayers(expense, new Set(current.players.filter((item) => item.id !== playerId).map((item) => item.id))))
+        .filter((expense) => expense.participantIds.length > 0 || expense.payments.length > 0),
       requests: current.requests.filter((item) => item.playerId !== playerId),
       adjustments: current.adjustments.filter((item) => item.playerId !== playerId),
     }))
+    if (selectedUserId === playerId) {
+      const nextUserId = state.players.find((item) => item.id !== playerId)?.id ?? ""
+      setSelectedUserId(nextUserId)
+      setRole(nextUserId ? role : null)
+    }
     setScreen("players")
   }
 
@@ -437,13 +463,14 @@ export default function App() {
   function updateRequest(id: string, status: RequestStatus) {
     setState((current) => {
       const request = current.requests.find((item) => item.id === id)
-    const adjustment =
-        status === "approved" && request
+      const alreadyFinal = request?.status !== "pending"
+      const adjustment =
+        status === "approved" && request && !alreadyFinal
           ? [{ id: newId(), playerId: request.playerId, kind: "credit" as const, amount: request.amount, reason: `Recharge approved: ${request.reason}`, createdAt: Date.now() }]
           : []
       return {
         ...current,
-        requests: current.requests.map((item) => (item.id === id ? { ...item, status } : item)),
+        requests: current.requests.map((item) => (item.id === id && item.status === "pending" ? { ...item, status } : item)),
         adjustments: [...adjustment, ...current.adjustments],
       }
     })
