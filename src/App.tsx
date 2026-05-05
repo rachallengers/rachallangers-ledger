@@ -99,11 +99,23 @@ const expenseTypes: { id: ExpenseType; label: string; icon: string }[] = [
 ]
 
 const LOGO_URL = "https://i.ibb.co/xKHvpNq7/039925f4-eab6-45a2-b640-f8bad2975157.png"
-const paymentCategories = [
-  { label: "Match Fee", type: "match" },
-  { label: "Food", type: "food" },
-  { label: "Vehicle", type: "vehicle" },
-] as const
+const paymentCategories = {
+  match: {
+    label: "Match Fee",
+    regex: /match|ground/i,
+    hint: "🏏 Will split as Match Fee",
+  },
+  vehicle: {
+    label: "Vehicle",
+    regex: /vehicle|car|bike|fuel|transport/i,
+    hint: "🚗 Will credit as Vehicle expense",
+  },
+  food: {
+    label: "Food",
+    regex: /food|meal|snack/i,
+    hint: "🍔 Will credit as Food expense",
+  },
+} as const
 
 const seedPlayers = [
   "Mohit",
@@ -622,105 +634,107 @@ export default function App() {
         </FormScreen>
       )}
 
-      {screen === "expense-basic" && (
-        <FormScreen title="Add Expense" back={() => setScreen("dashboard")}>
-          {!isAdmin && <EmptyState text="Only admin can add expenses." />}
-          {isAdmin && (
-            <>
-          <TypePicker value={draft.type} onChange={(type) => setDraft((current) => ({ ...current, type }))} />
-          <Field label="Expense Name">
-            <input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
-          </Field>
-          <Field label="Date">
-            <input type="date" value={draft.date} onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))} />
-          </Field>
-          <button className="primary" onClick={() => setScreen("expense-payments")}>
-            Next: Add Payments
-          </button>
-            </>
-          )}
-        </FormScreen>
-      )}
-
-      {screen === "expense-payments" && (
-        <FormScreen title="Add Payments" back={() => setScreen("expense-basic")}>
-          <div className="segmented">
-            <button className={paymentTab === "match" ? "active" : ""} onClick={() => setPaymentTab("match")}>🏏 Match Fee</button>
-            <button className={paymentTab === "vehicle" ? "active" : ""} onClick={() => setPaymentTab("vehicle")}>🚗 Vehicle</button>
-            <button className={paymentTab === "food" ? "active" : ""} onClick={() => setPaymentTab("food")}>🍔 Food</button>
-          </div>
-          <button
-            className="primary subtle"
-            onClick={() =>
-              setDraft((current) => ({
-                ...current,
-                payments: [...current.payments, {
-                  id: newId(),
-                  playerId: state.players[0]?.id ?? "",
-                  amount: 0,
-                  label: paymentTab === "match" ? "Match Fee" : paymentTab === "vehicle" ? "Vehicle" : "Food",
-                }],
-              }))
-            }
-          >
-            + Add {paymentTab === "match" ? "Match Fee" : paymentTab === "vehicle" ? "Vehicle" : "Food"} Payer
-          </button>
-          <div className="list">
-            {draft.payments
-              .filter((p) => {
-                if (paymentTab === "match") return /match|ground/i.test(p.label)
-                if (paymentTab === "vehicle") return /vehicle|car|bike|fuel|transport/i.test(p.label)
-                if (paymentTab === "food") return /food|meal|snack/i.test(p.label)
-                return true
-              })
-              .map((payment) => (
-              <div className="payment-card" key={payment.id}>
-                <div className="payment-card-row">
-                  <select value={payment.playerId} onChange={(event) => updateDraftPayment(payment.id, { playerId: event.target.value })}>
-                    {state.players.map((player) => (
-                      <option key={player.id} value={player.id}>
-                        {player.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button className="remove-payment" onClick={() => setDraft((current) => ({ ...current, payments: current.payments.filter((item) => item.id !== payment.id) }))}>
-                    ✕
-                  </button>
-                </div>
-                <Field label="Amount (₹)">
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    placeholder="Enter amount"
-                    value={payment.amount || ""}
-                    onChange={(event) => updateDraftPayment(payment.id, { amount: Number(event.target.value) })}
-                  />
-                </Field>
-                <small className="payment-tag-hint">
-                  {/vehicle|car|bike|fuel|transport/i.test(payment.label)
-                    ? "🚗 Will credit as Vehicle expense"
-                    : /food|meal|snack/i.test(payment.label)
-                    ? "🍔 Will credit as Food expense"
-                    : "🏏 Will split as Match Fee"}
-                </small>
+          {screen === "expense-payments" && (
+            <FormScreen title="Add Payments" back={() => setScreen("expense-basic")}>
+              <div className="segmented">
+                <button className={paymentTab === "match" ? "active" : ""} onClick={() => setPaymentTab("match")}>🏏 Match Fee</button>
+                <button className={paymentTab === "vehicle" ? "active" : ""} onClick={() => setPaymentTab("vehicle")}>🚗 Vehicle</button>
+                <button className={paymentTab === "food" ? "active" : ""} onClick={() => setPaymentTab("food")}>🍔 Food</button>
               </div>
-            ))}
-            {draft.payments.filter((p) => {
-              if (paymentTab === "match") return /match|ground/i.test(p.label)
-              if (paymentTab === "vehicle") return /vehicle|car|bike|fuel|transport/i.test(p.label)
-              if (paymentTab === "food") return /food|meal|snack/i.test(p.label)
-              return true
-            }).length === 0 && <EmptyState text={`No ${paymentTab} payments added yet. Tap the button above.`} />}
-          </div>
-          <div className="total-row">
-            <span>Total Paid</span>
-            <strong>{money(expenseTotal(draft))}</strong>
-          </div>
-          <button className="primary" onClick={() => setScreen("expense-players")}>
-            Next: Select Players
-          </button>
-        </FormScreen>
-      )}
+
+              <button
+                className="primary subtle"
+                onClick={() =>
+                  setDraft((current) => ({
+                    ...current,
+                    payments: [
+                      ...current.payments,
+                      {
+                        id: newId(),
+                        playerId: state.players[0]?.id ?? "",
+                        amount: 0,
+                        label: paymentCategories[paymentTab].label,
+                      },
+                    ],
+                  }))
+                }
+              >
+                + Add {paymentCategories[paymentTab].label} Payer
+              </button>
+
+              <div className="list">
+                {draft.payments
+                  .filter((p) => paymentCategories[paymentTab].regex.test(p.label))
+                  .map((payment) => (
+                    <div className="payment-card" key={payment.id}>
+                      <div className="payment-card-row">
+                        <select
+                          value={payment.playerId}
+                          onChange={(event) =>
+                            updateDraftPayment(payment.id, {
+                              playerId: event.target.value,
+                            })
+                          }
+                        >
+                          {state.players.map((player) => (
+                            <option key={player.id} value={player.id}>
+                              {player.name}
+                            </option>
+                          ))}
+                        </select>
+
+                        <button
+                          className="remove-payment"
+                          onClick={() =>
+                            setDraft((current) => ({
+                              ...current,
+                              payments: current.payments.filter(
+                                (item) => item.id !== payment.id
+                              ),
+                            }))
+                          }
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <Field label="Amount (₹)">
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          placeholder="Enter amount"
+                          value={payment.amount || ""}
+                          onChange={(event) =>
+                            updateDraftPayment(payment.id, {
+                              amount: Number(event.target.value),
+                            })
+                          }
+                        />
+                      </Field>
+
+                      <small className="payment-tag-hint">
+                        {paymentCategories[paymentTab].hint}
+                      </small>
+                    </div>
+                  ))}
+
+                {draft.payments.filter((p) =>
+                  paymentCategories[paymentTab].regex.test(p.label)
+                ).length === 0 && (
+                  <EmptyState text={`No ${paymentCategories[paymentTab].label} payments added yet.`} />
+                )}
+              </div>
+
+              <div className="total-row">
+                <span>Total Paid</span>
+                <strong>{money(expenseTotal(draft))}</strong>
+              </div>
+
+              <button className="primary" onClick={() => setScreen("expense-players")}>
+                Next: Select Players
+              </button>
+            </FormScreen>
+          )}
 
       {screen === "expense-players" && (
         <FormScreen title="Select Players" back={() => setScreen("expense-payments")}>
